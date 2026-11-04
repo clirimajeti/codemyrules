@@ -1,0 +1,29 @@
+{
+  "name": "codemyrules",
+  "owner": {
+    "name": "clirimajeti",
+    "url": "https://github.com/clirimajeti"
+  },
+  "description": "A skill that turns a project's decisions, patterns and agent docs into lint rules, and feeds them back to the agent while it codes.",
+  "plugins": [
+    {
+      "name": "codemyrules",
+      "source": "./",
+      "description": "Turn decisions, patterns and agent-doc instructions into lint rules, slim the agent docs, and add a private lint feedback loop for Claude Code.",
+      "category": "engineering",
+      "keywords": ["lint", "eslint", "ast-grep", "agent-docs", "hooks"]
+    },
+    {
+      "name": "eslint-pattern-rules",
+      "source": { "source": "github", "repo": "clirimajeti/eslint-pattern-rules" },
+      "description": "Sub-skill for JavaScript, TypeScript, Vue and Svelte: turns a codebase's conventions into custom ESLint rules with tests.",
+      "category": "engineering"
+    },
+    {
+      "name": "backend-pattern-rules",
+      "source": { "source": "github", "repo": "clirimajeti/backend-pattern-rules" },
+      "description": "Sub-skill for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby: turns a codebase's conventions into ast-grep or native lint rules with tests.",
+      "category": "engineering"
+    }
+  ]
+}

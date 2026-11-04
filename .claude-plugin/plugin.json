@@ -1,0 +1,14 @@
+{
+  "name": "codemyrules",
+  "version": "0.2.0",
+  "description": "Turn a project's decisions, patterns and agent-doc instructions into lint rules across its whole stack, slim the agent docs they cover, and add a private, silent lint feedback loop for Claude Code. Drives eslint-pattern-rules and backend-pattern-rules, asks before it writes.",
+  "author": {
+    "name": "clirimajeti",
+    "url": "https://github.com/clirimajeti"
+  },
+  "repository": "https://github.com/clirimajeti/codemyrules",
+  "license": "MIT",
+  "keywords": ["lint", "eslint", "ast-grep", "custom-rules", "agent-docs", "claude-md", "hooks", "code-quality", "skills"],
+  "dependencies": ["eslint-pattern-rules", "backend-pattern-rules"],
+  "skills": ["./skills/codemyrules"]
+}

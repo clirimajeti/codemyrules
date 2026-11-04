@@ -1,0 +1,3 @@
+interface:
+  display_name: "codemyrules"
+  short_description: "Turn decisions, patterns and agent docs into lint rules"
