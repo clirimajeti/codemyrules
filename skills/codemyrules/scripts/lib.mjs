@@ -16,8 +16,8 @@ export const isSecretFile = (rel) => {
   const p = rel.split(path.sep).join('/').toLowerCase();
   return SECRET_PATTERNS.some((pat) => matchesPattern(p, pat));
 };
-// git pathspec: everything except the secret files
-const NO_SECRETS = ['--', '.', ...SECRET_PATTERNS.map((p) => `:(exclude,glob,icase)${p}`)];
+// git pathspec: the given files (taken literally, `[id].ts` is no glob) or everything, except the secret files
+const pathspec = (files) => ['--', ...(files ? files.map((f) => `:(literal)${f}`) : ['.']), ...SECRET_PATTERNS.map((p) => `:(exclude,glob,icase)${p}`)];
 
 const toPosix = (p) => p.split(path.sep).join('/');
 // linters report realpaths, so resolve a symlinked project dir (macOS /var) before going relative;
@@ -56,17 +56,19 @@ export function parseHunks(diff) {
 const git = (cwd, args) => spawnSync('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=never', ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
 const lines = (s) => s.split('\n').filter(Boolean);
 
-export function changedLines(cwd) {
+// files: limit the diff to these paths (relative to cwd); a whole-repo diff costs seconds with thousands of changed files
+export function changedLines(cwd, files) {
   if (git(cwd, ['rev-parse', '--is-inside-work-tree']).status !== 0) return null;
+  const spec = pathspec(files);
   const result = new Map();
   const markAll = (out) => lines(out).forEach((f) => result.set(f, 'all'));
   const hasHead = git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']).status === 0;
   if (hasHead) {
-    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD', ...NO_SECRETS]).stdout)) result.set(f, ranges);
+    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD', ...spec]).stdout)) result.set(f, ranges);
   } else {
-    markAll(git(cwd, ['ls-files', '--cached', ...NO_SECRETS]).stdout);
+    markAll(git(cwd, ['ls-files', '--cached', ...spec]).stdout);
   }
-  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard', ...NO_SECRETS]).stdout);
+  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard', ...spec]).stdout);
   return result;
 }
 

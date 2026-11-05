@@ -96,7 +96,7 @@ Draft the config in a temporary file outside the project, as `loop.json`:
 ```json
 {
   "linters": [
-    { "name": "ast-grep", "format": "ast-grep", "command": ["npx", "-y", "-p", "@ast-grep/cli@<version>", "ast-grep", "scan", "-c", "sgconfig.suggestions.yml", "--json=compact", "{files}"], "extensions": [".kt", ".java"], "tier": "fast" },
+    { "name": "ast-grep", "format": "ast-grep", "command": ["node_modules/.bin/ast-grep", "scan", "-c", "sgconfig.suggestions.yml", "--json=compact", "{files}"], "extensions": [".kt", ".java"], "tier": "fast" },
     { "name": "eslint", "format": "eslint", "command": ["node_modules/.bin/eslint", "-c", "eslint.config.suggestions.mjs", "--format", "json", "{files}"], "extensions": [".ts", ".vue"], "tier": "full" },
     { "name": "ruff", "format": "ruff", "command": ["ruff", "check", "--output-format=json", "{files}"], "extensions": [".py"], "tier": "full" }
   ],
@@ -105,8 +105,10 @@ Draft the config in a temporary file outside the project, as `loop.json`:
 ```
 
 - **Fast tier**: ast-grep only when the project has an `sgconfig.yml` (or the command passes `-c <path>` to one), run the way the project runs it; without one every scan fails, so leave ast-grep out, and the installer refuses such a config; ESLint only through `eslint_d` when the project has it (`["eslint_d", "--format", "json", "{files}"]`).
+  Only an installed binary: `node_modules/.bin/ast-grep` or `ast-grep` on `PATH`.
+  A package runner (`npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`) resolves the package on every edit, about 0.4 s warm and seconds or a download cold, and a run past the time limit counts as clean, so the installer refuses one in the fast tier.
+- **Full tier**: ESLint, ast-grep and Ruff, each only when the project runs it; ast-grep here when the project runs it only through a package runner.
   Through `npx`, name the package `@ast-grep/cli` with `-p` and pin the version the project uses: `npx ast-grep` alone resolves an unrelated npm package.
-- **Full tier**: ESLint, ast-grep and Ruff, each only when the project runs it.
   The end-of-turn check runs both tiers, so list each linter once, in the fastest tier it qualifies for.
 - **Never**: Gradle detekt, Error Prone, or any tool that starts a JVM build; those stay in CI.
 - **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.

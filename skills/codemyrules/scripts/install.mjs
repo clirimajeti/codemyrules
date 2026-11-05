@@ -76,6 +76,11 @@ export function findExecutable(cmd, projectDir, env = process.env) {
   return (env.PATH ?? '').split(path.delimiter).some((d) => d && exts.some((e) => fs.existsSync(path.join(d, cmd + e))));
 }
 
+// Package runners that look a package up (and may download it) on every call.
+const packageRunner = ([cmd, sub]) =>
+  cmd === 'npx' || cmd === 'bunx' ? cmd
+    : (cmd === 'npm' && sub === 'exec') || ((cmd === 'pnpm' || cmd === 'yarn') && sub === 'dlx') ? `${cmd} ${sub}` : null;
+
 // The hooks silently skip malformed entries, so a broken config must be refused here, before anything is installed.
 export function validateLoopConfig(cfg, projectDir) {
   const errs = [];
@@ -94,6 +99,10 @@ export function validateLoopConfig(cfg, projectDir) {
     if (!TIERS.includes(l.tier)) errs.push(`${at}.tier is "${l.tier}", expected fast or full`);
     if (isStrList(l.command) && l.command.length && !findExecutable(l.command[0], projectDir)) {
       errs.push(`${at}: "${l.command[0]}" is not installed (not on PATH, or no such file in the project); every run would fail, so this linter would never block anything. Install it, or use a command that is available`);
+    }
+    const runner = isStrList(l.command) && packageRunner(l.command);
+    if (runner && l.tier === 'fast') {
+      errs.push(`${at}: runs through "${runner}", which resolves the package on every edit (about 0.4 s with a warm cache, seconds or a download when cold, and a run past the 10 s limit counts as clean). Use the installed binary (node_modules/.bin/<tool>, or the tool on PATH), or move it to the full tier`);
     }
     if (isStrList(l.command)) {
       l.command.forEach((c, j) => {

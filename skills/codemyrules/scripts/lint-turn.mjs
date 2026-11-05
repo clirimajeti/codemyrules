@@ -13,7 +13,7 @@ let edited = [];
 try { edited = [...new Set(fs.readFileSync(tf, 'utf8').split('\n').filter(Boolean))]; } catch { /* no edits this turn */ }
 if (!edited.length) end();
 
-const changed = changedLines(cwd);
+const changed = changedLines(cwd, edited);
 const files = edited.filter((f) => changed?.has(f) && fs.existsSync(path.join(cwd, f)));
 if (!files.length) end();
 

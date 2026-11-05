@@ -30,7 +30,7 @@ try { linters = readLoopConfig(cwd).linters.filter((l) => l.tier === 'fast'); } 
 if (!linters.length) process.exit(0);
 
 const { findings, notes } = runLinters(cwd, linters, [rel]);
-const blocking = onChangedLines(findings, changedLines(cwd));
+const blocking = onChangedLines(findings, changedLines(cwd, [rel]));
 if (notes.length) process.stderr.write(notes.join('\n') + '\n');
 if (!blocking.length) process.exit(0);
 

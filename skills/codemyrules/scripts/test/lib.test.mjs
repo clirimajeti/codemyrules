@@ -50,6 +50,25 @@ test('changedLines returns edited ranges and all for new untracked files', () =>
   });
 });
 
+test('changedLines limited to given files reads only those, literally, and never secret files', () => {
+  withTmp((dir) => {
+    git(dir, 'init', '-q');
+    fs.writeFileSync(path.join(dir, 'a.ts'), '1\n2\n3\n');
+    fs.writeFileSync(path.join(dir, 'b.ts'), '1\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    fs.writeFileSync(path.join(dir, 'a.ts'), '1\nTWO\n3\n');
+    fs.writeFileSync(path.join(dir, 'b.ts'), 'ONE\n');
+    fs.writeFileSync(path.join(dir, '[id].ts'), 'new\n');
+    fs.writeFileSync(path.join(dir, 'i.ts'), 'new\n');
+    fs.writeFileSync(path.join(dir, '.env'), 'X=1\n');
+    const c = changedLines(dir, ['a.ts', '[id].ts', '.env']);
+    assert.deepEqual([...c.keys()].sort(), ['[id].ts', 'a.ts']);
+    assert.deepEqual(c.get('a.ts'), [[2, 2]]);
+    assert.equal(c.get('[id].ts'), 'all');
+  });
+});
+
 test('parseLinterOutput eslint', () => {
   const cwd = path.resolve('/repo');
   const out = JSON.stringify([{ filePath: path.join(cwd, 'src/a.ts'), messages: [

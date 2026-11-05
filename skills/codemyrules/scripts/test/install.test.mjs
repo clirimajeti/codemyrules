@@ -102,7 +102,7 @@ test('validateLoopConfig names every broken field', () => {
 test('validateLoopConfig refuses ast-grep without an sgconfig the command can find', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
   try {
-    const sg = { name: 'ast-grep', format: 'ast-grep', command: ['npx', 'ast-grep', 'scan', '--json=compact', '{files}'], extensions: ['.java'], tier: 'fast' };
+    const sg = { name: 'ast-grep', format: 'ast-grep', command: ['npx', 'ast-grep', 'scan', '--json=compact', '{files}'], extensions: ['.java'], tier: 'full' };
     assert.match(validateLoopConfig({ linters: [sg], protect: [] }, dir).join('\n'), /linters\[0\].*sgconfig\.yml/);
     const viaC = { ...sg, command: ['npx', 'ast-grep', 'scan', '-c', 'sgconfig.suggestions.yml', '{files}'] };
     assert.match(validateLoopConfig({ linters: [viaC], protect: [] }, dir).join('\n'), /linters\[0\].*sgconfig\.suggestions\.yml.*does not exist/);
@@ -110,6 +110,22 @@ test('validateLoopConfig refuses ast-grep without an sgconfig the command can fi
     assert.deepEqual(validateLoopConfig({ linters: [viaC], protect: [] }, dir), []);
     fs.writeFileSync(path.join(dir, 'sgconfig.yml'), 'ruleDirs: [rules]\n');
     assert.deepEqual(validateLoopConfig({ linters: [sg], protect: [] }, dir), []);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('validateLoopConfig refuses a package runner in the fast tier, where it would resolve the package on every edit', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'sgconfig.yml'), 'ruleDirs: [rules]\n');
+    const sg = (command, tier = 'fast') => ({ linters: [{ name: 'ast-grep', format: 'ast-grep', command, extensions: ['.kt'], tier }], protect: [] });
+    for (const runner of [['npx', '-y', '-p', '@ast-grep/cli@0.39.0', 'ast-grep'], ['npm', 'exec', '--', 'ast-grep'], ['pnpm', 'dlx', '@ast-grep/cli'], ['yarn', 'dlx', '@ast-grep/cli'], ['bunx', '@ast-grep/cli']]) {
+      const errs = validateLoopConfig(sg([...runner, 'scan', '--json=compact', '{files}']), dir).filter((e) => !/is not installed/.test(e));
+      assert.match(errs.join('\n'), /linters\[0\].*runs through .* on every edit.*full tier/, runner.join(' '));
+      assert.deepEqual(validateLoopConfig(sg([...runner, 'scan', '--json=compact', '{files}'], 'full'), dir).filter((e) => !/is not installed/.test(e)), [], runner.join(' '));
+    }
+    fs.mkdirSync(path.join(dir, 'node_modules/.bin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'node_modules/.bin/ast-grep'), '');
+    assert.deepEqual(validateLoopConfig(sg(['node_modules/.bin/ast-grep', 'scan', '--json=compact', '{files}']), dir), []);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

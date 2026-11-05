@@ -34,6 +34,9 @@ That instruction arrives only when a rule fails, so it needs no line in CLAUDE.m
 The end-of-turn check blocks once per turn.
 When the turn ends again with findings left, it lets it end and shows the user what is still failing, so it never loops.
 
+The fast tier runs only installed binaries: a package runner such as `npx` resolves the package on every edit, so the installer refuses one there.
+Each check diffs only the files it lints, not the whole repository.
+
 A linter that is missing, crashes or runs past its time limit (10 seconds in the fast tier, 30 in the full tier) never blocks: the hook prints one line, `codemyrules: <name> failed: <reason>`, and treats that linter as clean.
 Outside a git repository the hooks do nothing.
 
