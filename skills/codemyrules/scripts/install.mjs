@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CONFIG_DIR, SETTINGS_FILE } from './lib.mjs';
 
-const SCRIPTS = ['lib.mjs', 'lint-turn.mjs', 'lint-edited.mjs', 'guard.mjs'];
+const SCRIPTS = ['lib.mjs', 'secret-patterns.json', 'lint-turn.mjs', 'lint-edited.mjs', 'guard.mjs'];
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const EXCLUDES = [`${CONFIG_DIR}/`, SETTINGS_FILE];
 

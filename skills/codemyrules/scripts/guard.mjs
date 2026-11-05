@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CONFIG_DIR, SETTINGS_FILE, matchesPattern, readHookInput, readLoopConfig, realPath } from './lib.mjs';
+import { CONFIG_DIR, SETTINGS_FILE, isSecretFile, matchesPattern, readHookInput, readLoopConfig, realPath } from './lib.mjs';
 
 export const SUPPRESSION = new RegExp([
   /eslint-disable/, /\/[*/]\s*eslint\s+[@\w/-]+\s*:/, // inline ESLint config: /* eslint no-console: "off" */
@@ -49,7 +49,7 @@ export function decide(input, cwd) {
   } else if (input.tool_name === 'MultiEdit') {
     const edits = ti.edits ?? [];
     added = addsSuppression(edits.map((e) => e.old_string ?? '').join('\n'), edits.map((e) => e.new_string ?? '').join('\n'));
-  } else if (input.tool_name === 'Write') {
+  } else if (input.tool_name === 'Write' && !isSecretFile(rel)) {
     added = addsSuppression(readOrEmpty(path.resolve(cwd, ti.file_path)), ti.content);
   }
   return added ? { reason: `this edit adds or changes a lint suppression in ${rel}.` } : null;

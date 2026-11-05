@@ -151,3 +151,11 @@ test('malformed loop.json fails closed with an ask', () => {
     assert.match(out.permissionDecisionReason, /loop\.json could not be read/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Write to a secret file never reads it', () => {
+  const dir = project();
+  try {
+    fs.mkdirSync(path.join(dir, '.env')); // reading it would throw EISDIR
+    assert.equal(decide({ tool_name: 'Write', tool_input: { file_path: path.join(dir, '.env'), content: '# noqa' } }, dir), null);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   FOOTER, parseHunks, changedLines, parseLinterOutput, onChangedLines,
-  runLinters, formatFindings, logFindings, matchesPattern, readLoopConfig,
+  runLinters, formatFindings, logFindings, matchesPattern, readLoopConfig, isSecretFile,
 } from '../lib.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
@@ -227,5 +227,56 @@ test('readLoopConfig drops malformed entries', () => {
       linters: [good, null, 'x', { name: 'n', command: 'eslint', extensions: ['.ts'] }, { name: 'm', command: ['x'] }],
     }));
     assert.deepEqual(readLoopConfig(dir), { linters: [good], protect: ['a/**'] });
+  });
+});
+
+test('isSecretFile matches credential files anywhere and leaves source alone', () => {
+  for (const f of ['.env', 'api/.env.local', '.ENV.production', '.envrc', 'certs/tls.pem', 'tls.key', '.ssh/id_ed25519', 'deploy/id_rsa.pub',
+    '.aws/credentials', 'home/.kube/config', '.netrc', '.npmrc', '.pypirc', '.git-credentials', '.docker/config.json',
+    '.config/gcloud/application_default_credentials.json', '.claude/.credentials.json', 'infra/prod.tfvars', 'keystore.jks', 'cert.p12']) {
+    assert.ok(isSecretFile(f), f);
+  }
+  for (const f of ['src/env.ts', 'src/credentials.ts', 'environment.md', 'src/keys.ts', 'docs/ssh.md', 'config.json']) {
+    assert.ok(!isSecretFile(f), f);
+  }
+});
+
+test('runLinters never passes a secret file, even with a matching extension', () => {
+  withTmp((dir) => {
+    const script = 'require("fs").writeFileSync("seen.json", JSON.stringify(process.argv.slice(1))); process.stdout.write("[]")';
+    const r = runLinters(dir, [{ name: 'z', format: 'eslint', command: [process.execPath, '-e', script, '{files}'], extensions: ['.json', '.pem', ''], tier: 'fast' }],
+      ['config.json', '.docker/config.json', 'tls.pem', '.env', 'app.json']);
+    assert.deepEqual(r.notes, []);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'seen.json'), 'utf8')), ['config.json', 'app.json']);
+  });
+});
+
+test('runLinters skips the linter when only secret files are left', () => {
+  withTmp((dir) => {
+    const r = runLinters(dir, [{ name: 'x', format: 'eslint', command: ['definitely-not-a-command', '{files}'], extensions: [''], tier: 'fast' }], ['.env']);
+    assert.deepEqual(r, { findings: [], notes: [] });
+  });
+});
+
+test('changedLines leaves secret files out of the diff and the untracked list', () => {
+  withTmp((dir) => {
+    git(dir, 'init', '-q');
+    fs.mkdirSync(path.join(dir, 'api'));
+    for (const f of ['a.ts', '.env', 'api/.env']) fs.writeFileSync(path.join(dir, f), '1\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    for (const f of ['a.ts', '.env', 'api/.env']) fs.writeFileSync(path.join(dir, f), 'TOKEN=x\n');
+    fs.writeFileSync(path.join(dir, '.env.local'), 'TOKEN=y\n');
+    fs.writeFileSync(path.join(dir, 'b.ts'), 'new\n');
+    assert.deepEqual([...changedLines(dir).keys()].sort(), ['a.ts', 'b.ts']);
+  });
+});
+
+test('changedLines leaves secret files out in a repo without commits', () => {
+  withTmp((dir) => {
+    git(dir, 'init', '-q');
+    for (const f of ['a.ts', '.env']) fs.writeFileSync(path.join(dir, f), 'x\n');
+    git(dir, 'add', '.');
+    assert.deepEqual([...changedLines(dir).keys()], ['a.ts']);
   });
 });

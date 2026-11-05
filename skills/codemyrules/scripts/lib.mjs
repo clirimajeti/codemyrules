@@ -9,6 +9,16 @@ const LOG_FILE = 'failures.log';
 
 export const FOOTER = 'Fix these before you finish. If you think a case is legitimate, ask the user and show the rule, its message and why you think so. If they agree, propose a change to the rule (an exclusion or a narrower pattern, plus a test case), not to the code. Never add an ignore comment or change lint config on your own. With nobody to ask, finish the rest of the task and list these in your final report.';
 
+// Files that hold credentials by convention (secret-patterns.json, lowercase, matched case-insensitively).
+// codemyrules never reads them, diffs them or hands them to a linter.
+export const SECRET_PATTERNS = JSON.parse(fs.readFileSync(new URL('./secret-patterns.json', import.meta.url), 'utf8'));
+export const isSecretFile = (rel) => {
+  const p = rel.split(path.sep).join('/').toLowerCase();
+  return SECRET_PATTERNS.some((pat) => matchesPattern(p, pat));
+};
+// git pathspec: everything except the secret files
+const NO_SECRETS = ['--', '.', ...SECRET_PATTERNS.map((p) => `:(exclude,glob,icase)${p}`)];
+
 const toPosix = (p) => p.split(path.sep).join('/');
 // linters report realpaths, so resolve a symlinked project dir (macOS /var) before going relative;
 // a path that does not exist yet resolves through its nearest existing parent
@@ -52,11 +62,11 @@ export function changedLines(cwd) {
   const markAll = (out) => lines(out).forEach((f) => result.set(f, 'all'));
   const hasHead = git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']).status === 0;
   if (hasHead) {
-    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD']).stdout)) result.set(f, ranges);
+    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD', ...NO_SECRETS]).stdout)) result.set(f, ranges);
   } else {
-    markAll(git(cwd, ['ls-files', '--cached']).stdout);
+    markAll(git(cwd, ['ls-files', '--cached', ...NO_SECRETS]).stdout);
   }
-  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard']).stdout);
+  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard', ...NO_SECRETS]).stdout);
   return result;
 }
 
@@ -95,7 +105,7 @@ export function runLinters(cwd, linters, files, timeouts = TIMEOUT_MS) {
   const findings = [];
   const notes = [];
   for (const l of linters) {
-    const mine = files.filter((f) => l.extensions.includes(path.extname(f)));
+    const mine = files.filter((f) => !isSecretFile(f) && l.extensions.includes(path.extname(f)));
     if (!mine.length) continue;
     const command = l.command.flatMap((a) => (a === '{files}' ? mine : [a]));
     const timeout = l.tier === 'fast' ? timeouts.fast : timeouts.full;

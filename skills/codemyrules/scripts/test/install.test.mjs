@@ -160,3 +160,13 @@ test('findExecutable looks a bare name up on PATH', () => {
     assert.equal(findExecutable('node', dir), true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('the installed lib.mjs finds its secret patterns next to it', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--apply').status, 0);
+  const lib = path.join(dir, '.claude/codemyrules/lib.mjs');
+  const r = spawnSync('node', ['--input-type=module', '-e',
+    `import { isSecretFile } from ${JSON.stringify(new URL(`file://${lib}`).href)}; console.log(isSecretFile('.env'), isSecretFile('src/a.ts'))`], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), 'true false');
+});

@@ -19,6 +19,7 @@ Gradle detekt and Error Prone need a JVM build and never run in a hook.
 The fast check records each file it sees in `.claude/codemyrules/turn-<session>.txt`, and the end-of-turn check lints only those files, so uncommitted work from before the turn never blocks.
 The end-of-turn check deletes that list when it lets the turn end.
 Files changed through `Bash` (a formatter, `sed`, a code generator) are not recorded and not checked in the turn; CI catches those.
+Credential files (`.env*`, `.envrc`, SSH keys, `*.pem` / `*.key`, `.aws/`, `.kube/`, `.netrc`, `.npmrc`, `*.tfvars`, the full list is `secret-patterns.json`) are never read, diffed or passed to a linter by any check.
 
 ## What blocks
 
@@ -58,7 +59,7 @@ Everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
-| `.claude/codemyrules/guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs`, `lib.mjs` | the hooks and their shared code, copied by `install.mjs` |
+| `.claude/codemyrules/guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs`, `lib.mjs`, `secret-patterns.json` | the hooks, their shared code and the credential files they never touch, copied by `install.mjs` |
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
