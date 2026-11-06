@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  FOOTER, parseHunks, changedLines, parseLinterOutput, onChangedLines,
+  FOOTER, parseHunks, unquotePath, dirtyFiles, changedLines, parseLinterOutput, onChangedLines,
   runLinters, formatFindings, logFindings, matchesPattern, readLoopConfig, isSecretFile,
 } from '../lib.mjs';
 
@@ -231,9 +231,9 @@ test('parseHunks does not treat an added line starting with ++ as a file header'
 test('runLinters turns a timeout into a failure note', () => {
   withTmp((dir) => {
     const t0 = Date.now();
-    const r = runLinters(dir, [{ name: 'slow', format: 'eslint', command: [process.execPath, '-e', 'setTimeout(() => {}, 5000)', '{files}'], extensions: ['.ts'], tier: 'fast' }], ['a.ts'], { fast: 200, full: 200 });
+    const r = runLinters(dir, [{ name: 'slow', format: 'eslint', command: [process.execPath, '-e', 'setTimeout(() => {}, 5000)', '{files}'], extensions: ['.ts'], tier: 'fast' }], ['a.ts'], 200);
     assert.ok(Date.now() - t0 < 4000);
-    assert.deepEqual(r.notes, ['codemyrules: slow failed: timed out after 0.2s']);
+    assert.deepEqual(r.notes, ['codemyrules: slow failed: timed out (time budget 0.2s)']);
   });
 });
 
@@ -297,5 +297,71 @@ test('changedLines leaves secret files out in a repo without commits', () => {
     for (const f of ['a.ts', '.env']) fs.writeFileSync(path.join(dir, f), 'x\n');
     git(dir, 'add', '.');
     assert.deepEqual([...changedLines(dir).keys()], ['a.ts']);
+  });
+});
+
+test('runLinters kills a linter that ignores SIGTERM', () => {
+  withTmp((dir) => {
+    const t0 = Date.now();
+    const script = 'process.on("SIGTERM", () => {}); setTimeout(() => {}, 5000)';
+    const r = runLinters(dir, [{ name: 'stubborn', format: 'eslint', command: [process.execPath, '-e', script, '{files}'], extensions: ['.ts'], tier: 'fast' }], ['a.ts'], 300);
+    assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0}ms`);
+    assert.deepEqual(r.notes, ['codemyrules: stubborn failed: timed out (time budget 0.3s)']);
+  });
+});
+
+test('runLinters shares one time budget across linters', () => {
+  withTmp((dir) => {
+    const slow = (name) => ({ name, format: 'eslint', command: [process.execPath, '-e', 'setTimeout(() => {}, 5000)', '{files}'], extensions: ['.ts'], tier: 'fast' });
+    const t0 = Date.now();
+    const r = runLinters(dir, [slow('a'), slow('b'), slow('c')], ['a.ts'], 300);
+    assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0}ms`);
+    assert.deepEqual(r.notes, ['codemyrules: a failed: timed out (time budget 0.3s)',
+      'codemyrules: b skipped: time budget 0.3s used up', 'codemyrules: c skipped: time budget 0.3s used up']);
+  });
+});
+
+test('unquotePath reads the C-quoted form git uses for odd names', () => {
+  assert.equal(unquotePath('b/plain.ts'), 'b/plain.ts');
+  assert.equal(unquotePath('"b/we\\"ird.ts"'), 'b/we"ird.ts');
+  assert.equal(unquotePath('"b/back\\\\slash.ts"'), 'b/back\\slash.ts');
+  assert.equal(unquotePath('"b/tab\\there.ts"'), 'b/tab\there.ts');
+  assert.equal(unquotePath('"b/\\303\\244.ts"'), 'b/\u00e4.ts');
+});
+
+test('parseHunks reads quoted file names', () => {
+  const diff = '--- "a/we\\"ird.ts"\n+++ "b/we\\"ird.ts"\n@@ -1 +1 @@\n-a\n+b\n';
+  assert.deepEqual([...parseHunks(diff)], [['we"ird.ts', [[1, 1]]]]);
+});
+
+test('changedLines handles names git has to quote, tracked and untracked', () => {
+  withTmp((dir) => {
+    git(dir, 'init', '-q');
+    fs.writeFileSync(path.join(dir, 'we"ird.ts'), '1\n2\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    fs.writeFileSync(path.join(dir, 'we"ird.ts'), '1\nTWO\n');
+    fs.writeFileSync(path.join(dir, 'back\\slash.ts'), 'new\n');
+    const c = changedLines(dir);
+    assert.deepEqual(c.get('we"ird.ts'), [[2, 2]]);
+    assert.equal(c.get('back\\slash.ts'), 'all');
+  });
+});
+
+test('dirtyFiles lists changed, deleted and untracked files, never secret files', () => {
+  withTmp((dir) => {
+    assert.equal(dirtyFiles(dir), null);
+    git(dir, 'init', '-q');
+    fs.writeFileSync(path.join(dir, 'a.ts'), '1\n');
+    assert.deepEqual([...dirtyFiles(dir)], ['a.ts']);
+    fs.writeFileSync(path.join(dir, 'b.ts'), '1\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    assert.deepEqual([...dirtyFiles(dir)], []);
+    fs.writeFileSync(path.join(dir, 'a.ts'), '2\n');
+    fs.rmSync(path.join(dir, 'b.ts'));
+    fs.writeFileSync(path.join(dir, 'we"ird.ts'), 'x\n');
+    fs.writeFileSync(path.join(dir, '.env'), 'X=1\n');
+    assert.deepEqual([...dirtyFiles(dir)].sort(), ['a.ts', 'b.ts', 'we"ird.ts']);
   });
 });

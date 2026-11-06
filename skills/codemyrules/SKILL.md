@@ -114,7 +114,7 @@ Done when every picked candidate is built and verified, or reported as not built
 
 ## 5. Offer the feedback loop
 
-The loop runs the project's lint setup in Claude Code hooks: a guard before each edit, a fast check after each edit, and a full check at the end of each turn.
+The loop runs the project's lint setup in Claude Code hooks: a guard before each edit and around each shell command, a fast check after each edit, and a full check at the end of each turn.
 It is private (`.claude/settings.local.json` and `.git/info/exclude`) and silent when clean.
 [`references/feedback-loop.md`](references/feedback-loop.md) explains it; read it before offering.
 Offer it only when you are running in Claude Code.
@@ -135,7 +135,7 @@ Draft the config in a temporary file outside the project, as `loop.json`:
 
 - **Fast tier**: ast-grep only when the project has an `sgconfig.yml` (or the command passes `-c <path>` to one), run the way the project runs it; without one every scan fails, so leave ast-grep out, and the installer refuses such a config; ESLint only through `eslint_d` when the project has it (`["eslint_d", "--format", "json", "{files}"]`).
   Only an installed binary: `node_modules/.bin/ast-grep` or `ast-grep` on `PATH`.
-  A package runner (`npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`) resolves the package on every edit, about 0.4 s warm and seconds or a download cold, and a run past the time limit counts as clean, so the installer refuses one in the fast tier.
+  A package runner (`npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`) resolves the package on every edit, about 0.4 s warm and seconds or a download cold, and a run past the time budget counts as clean, so the installer refuses one in the fast tier.
 - **Full tier**: ESLint, ast-grep and Ruff, each only when the project runs it; ast-grep here when the project runs it only through a package runner.
   Through `npx`, name the package `@ast-grep/cli` with `-p` and pin the version the project uses: `npx ast-grep` alone resolves an unrelated npm package.
   The end-of-turn check runs both tiers, so list each linter once, in the fastest tier it qualifies for.
@@ -144,7 +144,7 @@ Draft the config in a temporary file outside the project, as `loop.json`:
 - `command` is the project's own invocation with JSON output, and `"{files}"` is its own element.
   `extensions` are the file types that linter covers in this project.
 - `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`), rule folders (`eslint-rules/**`, `ast-grep/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
-  Leave out shared build files such as `package.json`, `pom.xml` or `pyproject.toml`, where an ask on every edit would be noise; mention in the report that lint settings inside them are not guarded.
+  Leave out shared build files such as `package.json`, `pom.xml` or `pyproject.toml`, where an ask on every edit would be noise: the guard already asks for edits to the lint settings inside `package.json`, `pyproject.toml`, `setup.cfg` and `tox.ini`; mention in the report that lint settings inside other build files, such as plugin config in `pom.xml` or `build.gradle`, are not guarded.
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
 
 The installer validates the config (formats, tiers, `command` as a list with `"{files}"`, every `-c` or `--config` path existing, the command's tool installed (on `PATH`, or a path in the project), `protect` as a list) and refuses a broken one with a message per field, before it writes anything.

@@ -37,24 +37,42 @@ When the turn ends again with findings left, it lets it end and shows the user w
 The fast tier runs only installed binaries: a package runner such as `npx` resolves the package on every edit, so the installer refuses one there.
 Each check diffs only the files it lints, not the whole repository.
 
-A linter that is missing, crashes or runs past its time limit (10 seconds in the fast tier, 30 in the full tier) never blocks: the hook prints one line, `codemyrules: <name> failed: <reason>`, and treats that linter as clean.
+A linter that is missing, crashes or runs past the time budget never blocks: the hook prints one line, `codemyrules: <name> failed: <reason>`, and treats that linter as clean.
+The budget is shared by all linters of one check, 10 seconds after an edit and 60 at the end of the turn, so several linters cannot add up; a linter that starts after the budget is used up is skipped with a note.
+A linter past the budget is killed with `SIGKILL`, so one that ignores `SIGTERM` cannot keep the hook waiting.
 Outside a git repository the hooks do nothing.
 
 ## The guard
 
 A `PreToolUse` hook on `Edit|Write|MultiEdit` checks each edit before it happens.
 It turns these into a permission prompt (`permissionDecision: "ask"`), so only the user can approve them:
-- an edit that adds or changes a line with an ignore comment (`eslint-disable`, an inline `/* eslint rule: "off" */`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `@Suppress`, `@SuppressWarnings`, `@SuppressLint`, `# noqa` and `# ruff: noqa`, `# type: ignore`, `pylint: disable`, `ast-grep-ignore`, `//nolint`, `#[allow(`, `#![allow(`, `biome-ignore`, `NOSONAR`)
-  It compares the suppression lines before and after the edit, so swapping one ignore comment for another, or adding a rule name to an existing one, also asks.
+- an edit that adds or changes a line with an ignore comment:
+  - JS/TS: `eslint-disable`, an inline `/* eslint rule: "off" */`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `tslint:disable`, `biome-ignore`
+  - JVM and C#: `@Suppress…` (also `@file:Suppress`), `[SuppressMessage(`, `#pragma warning disable`, `NOSONAR`
+  - Python: `# noqa`, `# type: ignore`, `pylint: disable` and `skip-file`, `# pyright:`, `# mypy:`
+  - Go, Rust, C/C++: `//nolint`, `//lint:ignore`, `NOLINT`, `#[allow(`, `#![allow(`
+  - Ruby and PHP: `rubocop:disable` and `todo`, `@phpstan-ignore`, `@psalm-suppress`, `phpcs:ignore` and `disable`
+  - ast-grep: `ast-grep-ignore`
+
+  It compares the suppressions before and after the edit, so swapping one ignore comment for another, or adding a rule name to an existing one, also asks.
+  An ignore comment on a line of its own counts together with the next line of code, so moving it onto other code also asks.
+  Prose files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are left out, so docs can name an ignore comment; a string literal in code that holds one still asks.
+- an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files
 - an edit to `.claude/codemyrules/` itself or to `.claude/settings.local.json`
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
 
-The guard sees only the `Edit`, `Write` and `MultiEdit` tools.
-Known gaps: a change made through `Bash` (`sed`, a script, `git checkout`) or through `NotebookEdit` is not checked, so it can still add an ignore comment or change a lint config.
-CI, running the project's own lint setup, is the safety net for those.
+### Changes through the shell
+
+A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `shell-guard.mjs`, runs before and after each `Bash` and `NotebookEdit` call.
+Before, it stores the content of every file that differs from `HEAD`, plus the codemyrules setup, in git's object store; after, it finds every file the call changed and checks it like an edit, including the protected paths.
+The change has already happened, so it cannot ask first: it blocks with a `PostToolUse` decision that tells the agent to undo the change or ask the user, and shows the user the same list.
+The files it changed are also recorded for the end-of-turn check.
+It costs about two git calls per hook; credential files are never read.
+When two commands run in parallel, each one may also report the other's changes.
+CI, running the project's own lint setup, stays the safety net.
 
 ## Files
 
@@ -62,11 +80,11 @@ Everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
-| `.claude/codemyrules/guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs`, `lib.mjs`, `secret-patterns.json` | the hooks, their shared code and the credential files they never touch, copied by `install.mjs` |
+| `.claude/codemyrules/guard.mjs`, `shell-guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs`, `lib.mjs`, `secret-patterns.json` | the hooks, their shared code and the credential files they never touch, copied by `install.mjs` |
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
-| `.claude/settings.local.json` | the three hook entries |
+| `.claude/settings.local.json` | the five hook entries |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its three entries into an existing `settings.local.json` without removing or duplicating anything, so running it again is safe.

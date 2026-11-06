@@ -36,8 +36,8 @@ test('mergeSettings keeps existing keys, adds hooks, is idempotent', () => {
   const once = mergeSettings(existing);
   assert.deepEqual(once.permissions, existing.permissions);
   assert.equal(once.hooks.Stop.length, 2);
-  assert.equal(once.hooks.PreToolUse.length, 1);
-  assert.equal(once.hooks.PostToolUse.length, 1);
+  assert.equal(once.hooks.PreToolUse.length, 2);
+  assert.equal(once.hooks.PostToolUse.length, 2);
   assert.deepEqual(mergeSettings(once), once);
   assert.equal(HOOKS.Stop[0].matcher, undefined);
 });
@@ -45,6 +45,13 @@ test('mergeSettings keeps existing keys, adds hooks, is idempotent', () => {
 test('each hook entry has an explicit timeout in seconds', () => {
   const t = (e) => HOOKS[e][0].hooks[0].timeout;
   assert.deepEqual([t('PreToolUse'), t('PostToolUse'), t('Stop')], [10, 30, 120]);
+});
+
+test('the shell guard runs before and after Bash and NotebookEdit', () => {
+  for (const e of ['PreToolUse', 'PostToolUse']) {
+    const shell = HOOKS[e].find((x) => x.hooks[0].command.includes('shell-guard.mjs'));
+    assert.equal(shell.matcher, 'Bash|NotebookEdit', e);
+  }
 });
 
 test('dry run writes nothing', (t) => {

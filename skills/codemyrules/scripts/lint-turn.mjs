@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { FOOTER, changedLines, formatFindings, logFindings, onChangedLines, readHookInput, readLoopConfig, runLinters, turnFile } from './lib.mjs';
+import { BUDGET_MS, FOOTER, changedLines, formatFindings, logFindings, onChangedLines, readHookInput, readLoopConfig, runLinters, turnFile } from './lib.mjs';
 
 const input = await readHookInput();
 const cwd = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
@@ -22,7 +22,7 @@ try { linters = readLoopConfig(cwd).linters; } catch (e) {
   console.log(`codemyrules: loop.json could not be read (${e.message.split('\n')[0]})`);
   end();
 }
-const { findings, notes } = runLinters(cwd, linters, files);
+const { findings, notes } = runLinters(cwd, linters, files, BUDGET_MS.turn);
 const mine = onChangedLines(findings, changed);
 
 if (mine.length && !input.stop_hook_active) {

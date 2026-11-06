@@ -154,14 +154,14 @@ Three tiers, each silent when clean:
   Only errors on lines changed since `HEAD` block, so the agent never fixes unrelated legacy code.
   The loop runs the suggestions layer, so rules the old code breaks still guard new code; warnings never block.
 - **Rules cannot be quietly weakened.**
-  A guard asks you before any edit that adds an ignore comment or changes a lint config, rule file or baseline.
-  The guard covers the `Edit`, `Write` and `MultiEdit` tools; edits through `Bash` or `NotebookEdit` are not checked, and CI is the safety net for those.
+  A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
+  A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
   The hooks go into `.claude/settings.local.json`, the scripts into `.claude/codemyrules/`, and both into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
 
-To uninstall, delete `.claude/codemyrules/` and the three codemyrules entries in `.claude/settings.local.json`.
+To uninstall, delete `.claude/codemyrules/` and the five codemyrules entries in `.claude/settings.local.json`.
 [`references/feedback-loop.md`](skills/codemyrules/references/feedback-loop.md) has the details.
 
 ## Harness Support
@@ -192,7 +192,8 @@ skills/codemyrules/
 └── scripts/
     ├── install.mjs             # installs the loop into a project (dry run by default)
     ├── measure.mjs             # baseline and before/after report
-    ├── guard.mjs               # PreToolUse hook
+    ├── guard.mjs               # PreToolUse hook on edits
+    ├── shell-guard.mjs         # Pre- and PostToolUse hook on Bash and NotebookEdit
     ├── lint-edited.mjs         # PostToolUse hook, fast tier
     ├── lint-turn.mjs           # Stop hook, all tiers
     ├── lib.mjs                 # shared hook code

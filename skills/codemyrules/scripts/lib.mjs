@@ -30,6 +30,23 @@ export function realPath(p) {
 }
 const relFile = (cwd, file) => { const real = realPath(cwd); return toPosix(path.relative(real, path.resolve(real, file))); };
 
+// git C-quotes a path that holds ", \ or a control character, even with core.quotepath=off: "b/we\"ird.ts"
+const ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+export function unquotePath(p) {
+  if (p.length < 2 || !p.startsWith('"') || !p.endsWith('"')) return p;
+  const s = p.slice(1, -1);
+  const parts = [];
+  let last = 0;
+  for (const m of s.matchAll(/\\([0-7]{3}|.)/g)) {
+    parts.push(Buffer.from(s.slice(last, m.index)));
+    const e = m[1];
+    parts.push(e.length === 3 ? Buffer.from([parseInt(e, 8)]) : ESCAPES[e] ? Buffer.from([ESCAPES[e]]) : Buffer.from(e));
+    last = m.index + m[0].length;
+  }
+  parts.push(Buffer.from(s.slice(last)));
+  return Buffer.concat(parts).toString('utf8');
+}
+
 export function parseHunks(diff) {
   const result = new Map();
   let file = null;
@@ -38,7 +55,8 @@ export function parseHunks(diff) {
     const header = line.startsWith('+++ ') && prev.startsWith('--- ');
     prev = line;
     if (header) {
-      file = line === '+++ /dev/null' ? null : line.slice(4).replace(/\t.*$/, '').replace(/^b\//, '');
+      const name = unquotePath(line.slice(4).replace(/\t.*$/, ''));
+      file = name === '/dev/null' ? null : name.replace(/^b\//, '');
       continue;
     }
     const m = file && /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
@@ -53,24 +71,50 @@ export function parseHunks(diff) {
 }
 
 // pin every output-shaping setting, so user git config cannot change what we parse
-const git = (cwd, args) => spawnSync('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=never', ...args], { cwd, encoding: 'utf8', maxBuffer: 1 << 28 });
-const lines = (s) => s.split('\n').filter(Boolean);
+const git = (cwd, args, input) => spawnSync('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=never', ...args], { cwd, input, encoding: 'utf8', maxBuffer: 1 << 28 });
+// NUL-separated output (-z) is never quoted, whatever the file name
+const names = (s) => s.split('\0').filter(Boolean);
+const inRepo = (cwd) => git(cwd, ['rev-parse', '--is-inside-work-tree']).status === 0;
+const hasHead = (cwd) => git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']).status === 0;
 
 // files: limit the diff to these paths (relative to cwd); a whole-repo diff costs seconds with thousands of changed files
 export function changedLines(cwd, files) {
-  if (git(cwd, ['rev-parse', '--is-inside-work-tree']).status !== 0) return null;
+  if (!inRepo(cwd)) return null;
   const spec = pathspec(files);
   const result = new Map();
-  const markAll = (out) => lines(out).forEach((f) => result.set(f, 'all'));
-  const hasHead = git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']).status === 0;
-  if (hasHead) {
+  const markAll = (out) => names(out).forEach((f) => result.set(f, 'all'));
+  if (hasHead(cwd)) {
     for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD', ...spec]).stdout)) result.set(f, ranges);
   } else {
-    markAll(git(cwd, ['ls-files', '--cached', ...spec]).stdout);
+    markAll(git(cwd, ['ls-files', '--cached', '-z', ...spec]).stdout);
   }
-  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard', ...spec]).stdout);
+  markAll(git(cwd, ['ls-files', '--others', '--exclude-standard', '-z', ...spec]).stdout);
   return result;
 }
+
+// every file that differs from HEAD (changed, deleted or untracked), relative to cwd, secret files left out; null outside a repo
+export function dirtyFiles(cwd) {
+  if (!inRepo(cwd)) return null;
+  const spec = pathspec();
+  const tracked = hasHead(cwd)
+    ? git(cwd, ['diff', '--name-only', '-z', '--no-renames', '--relative', 'HEAD', ...spec])
+    : git(cwd, ['ls-files', '--cached', '-z', ...spec]);
+  return new Set([...names(tracked.stdout), ...names(git(cwd, ['ls-files', '--others', '--exclude-standard', '-z', ...spec]).stdout)]);
+}
+
+// git blob ids of the given files as they are on disk (null for a file that is gone); write keeps the content in git's object store
+export function hashFiles(cwd, files, write = false) {
+  const result = new Map(files.map((f) => [f, null]));
+  const present = files.filter((f) => !f.includes('\n') && fs.statSync(path.join(cwd, f), { throwIfNoEntry: false })?.isFile());
+  if (!present.length) return result;
+  const r = git(cwd, ['hash-object', '--no-filters', ...(write ? ['-w'] : []), '--stdin-paths'], present.join('\n'));
+  if (r.status !== 0) throw new Error(`git hash-object failed: ${r.stderr.split('\n')[0]}`);
+  r.stdout.trim().split('\n').forEach((h, i) => result.set(present[i], h));
+  return result;
+}
+
+// a blob's text, or a file's text at HEAD; '' when there is none
+export const readBlob = (cwd, rev) => { const r = git(cwd, ['cat-file', 'blob', rev]); return r.status === 0 ? r.stdout : ''; };
 
 const parsers = {
   eslint: (data, cwd) => data.flatMap((r) => r.messages.map((m) => ({
@@ -101,19 +145,23 @@ export function onChangedLines(findings, changed) {
   });
 }
 
-export const TIMEOUT_MS = { fast: 10000, full: 30000 };
+// one time budget per hook run, shared by all its linters, so several linters cannot add up past the hook's own timeout
+export const BUDGET_MS = { edit: 10000, turn: 60000 };
 
-export function runLinters(cwd, linters, files, timeouts = TIMEOUT_MS) {
+export function runLinters(cwd, linters, files, budget = BUDGET_MS.edit) {
   const findings = [];
   const notes = [];
+  const deadline = Date.now() + budget;
   for (const l of linters) {
     const mine = files.filter((f) => !isSecretFile(f) && l.extensions.includes(path.extname(f)));
     if (!mine.length) continue;
+    const timeout = deadline - Date.now();
+    if (timeout <= 0) { notes.push(`codemyrules: ${l.name} skipped: time budget ${budget / 1000}s used up`); continue; }
     const command = l.command.flatMap((a) => (a === '{files}' ? mine : [a]));
-    const timeout = l.tier === 'fast' ? timeouts.fast : timeouts.full;
-    const r = spawnSync(command[0], command.slice(1), { cwd, encoding: 'utf8', maxBuffer: 1 << 28, timeout });
+    // SIGKILL: a linter that ignores SIGTERM would otherwise keep the hook waiting
+    const r = spawnSync(command[0], command.slice(1), { cwd, encoding: 'utf8', maxBuffer: 1 << 28, timeout, killSignal: 'SIGKILL' });
     try {
-      if (r.error?.code === 'ETIMEDOUT') throw new Error(`timed out after ${timeout / 1000}s`);
+      if (r.error?.code === 'ETIMEDOUT') throw new Error(`timed out (time budget ${budget / 1000}s)`);
       if (r.error) throw r.error;
       findings.push(...parseLinterOutput(l.format, r.stdout, cwd));
     } catch (e) {
