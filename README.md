@@ -5,7 +5,7 @@
   <a href="https://github.com/clirimajeti/agent-rules-bench"><img alt="Benchmark" src="https://img.shields.io/badge/evidence-agent--rules--bench-green?style=flat-square" /></a>
 </p>
 
-<h3 align="center">Turn the rules in your agent docs into lint rules your agent cannot ignore.</h3>
+<h3 align="center">Turn the rules in your agent docs into code rules your agent cannot ignore.</h3>
 
 Every prose rule in `CLAUDE.md`, `AGENTS.md` or an instructions file is read in every agent session, whether the task needs it or not.
 The agent can still ignore it.
@@ -112,11 +112,26 @@ The method, the harness to rerun it on your own repo, and related work are in [a
 
 ## How It Works
 
+```mermaid
+flowchart TD
+  A["Your agent docs, decisions<br/>and existing code patterns"] --> B["1-2. Find the rules"]
+  B --> C{"Does the code<br/>follow the docs?"}
+  C -- "no" --> D["You choose: fix the doc<br/>or enforce it"]
+  C -- "yes" --> E
+  D --> E["3. You pick the rules"]
+  E --> F["4. Write each rule with tests, in the tools<br/>you already use (ESLint, detekt, ArchUnit, ...)"]
+  F --> F2["Slim the agent docs"]
+  F2 --> G["5. Feedback loop: the agent sees<br/>a broken rule while it codes"]
+  G --> H["6-7. Baseline and report"]
+```
+
 1. **Detects your stacks** and maps each source root to its sub-skill.
 2. **Discovers candidates** through each sub-skill: your code's majority patterns, your decision records, the rules written as prose in your agent docs, and well-known rules your linters have but you don't use yet.
+   A doc line the code no longer follows is raised as a question: update the doc to match the code, or enforce the doc.
 3. **Lets you pick** from one selection, frontend and backend in separate questions.
    Nothing is built until you pick it.
 4. **Builds each pick** through the sub-skill that owns its stack: design questions, the rule and its tests, verification on your real code.
+   It first checks which tools the project already uses, and writes the rule there, in their style: ESLint, detekt, Ruff, or an existing ArchUnit or Konsist test class; ast-grep only when none of them fits.
    Then, for each line in your agent docs the new rule enforces, you choose to delete it, shorten it to a pointer, or keep it.
    A pointer you keep can move to a `CLAUDE.md` in the folder it applies to, so it loads only when the agent works there.
 5. **Offers the feedback loop** as one approved step, after showing exactly what it installs.
