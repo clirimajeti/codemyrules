@@ -1,7 +1,7 @@
 ---
 name: codemyrules
 description: Turn a project's decisions, coding patterns and agent-doc instructions into lint rules across its whole stack, slim the CLAUDE.md / AGENTS.md / instructions files those rules now cover, and set up a private, silent lint feedback loop for Claude Code. Routes JS/TS/Vue/Svelte to eslint-pattern-rules and Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby to backend-pattern-rules, merges their candidates into one selection, and builds what the user picks. Use when the user wants to turn their decisions, patterns or agent docs into rules, slim or shrink CLAUDE.md or AGENTS.md, set up lint feedback for agents, or names codemyrules. Not for fixing existing lint errors or tuning an off-the-shelf linter config.
-version: "0.3.0"
+version: "0.4.0"
 metadata:
   author: clirimajeti <clirimajeti@gmail.com>
   tags: [lint, agent-docs, claude-md, hooks, code-quality]
