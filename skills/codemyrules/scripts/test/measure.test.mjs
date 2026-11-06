@@ -63,8 +63,11 @@ test('logStats aggregates by rule and event', () => {
     fs.mkdirSync(path.join(dir, '.claude/codemyrules'), { recursive: true });
     const row = (event, ruleId) => JSON.stringify({ ts: 't', event, ruleId, file: 'a', line: 1 });
     fs.writeFileSync(path.join(dir, '.claude/codemyrules/failures.log'), [row('edit', 'gen-a'), row('turn', 'gen-a'), row('edit', 'gen-b')].join('\n') + '\n');
-    assert.deepEqual(logStats(dir), { total: 3, byRule: { 'gen-a': 2, 'gen-b': 1 }, byEvent: { edit: 2, turn: 1 } });
-    assert.deepEqual(logStats(os.tmpdir() + '/nonexistent-cmr'), { total: 0, byRule: {}, byEvent: { edit: 0, turn: 0 } });
+    assert.deepEqual(logStats(dir), {
+      total: 3, byRule: { 'gen-a': 2, 'gen-b': 1 }, byEvent: { edit: 2, turn: 1 },
+      files: { 'gen-a': ['a', 'a'], 'gen-b': ['a'] }, ruleEvents: { 'gen-a': { edit: 1, turn: 1 }, 'gen-b': { edit: 1, turn: 0 } },
+    });
+    assert.deepEqual(logStats(os.tmpdir() + '/nonexistent-cmr'), { total: 0, byRule: {}, byEvent: { edit: 0, turn: 0 }, files: {}, ruleEvents: {} });
   });
 });
 
@@ -92,5 +95,38 @@ test('report still reads an old baseline without the always/on-demand split', ()
     fs.writeFileSync(path.join(dir, '.claude/codemyrules/baseline.json'), JSON.stringify({ date: 'd', docTokens: 140, rules: {} }));
     const out = execFileSync('node', [script, 'report', dir], { encoding: 'utf8' });
     assert.match(out, /doc tokens: 140 -> 100/);
+  });
+});
+
+test('report advises from the failure log and the doc growth', () => {
+  withRepo((dir) => {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'a'.repeat(400));
+    git(dir, 'add', 'CLAUDE.md');
+    const rules = path.join(dir, 'r.json');
+    fs.writeFileSync(rules, JSON.stringify({ 'gen-often': 0, 'gen-never': 0, 'gen-late': 2 }));
+    execFileSync('node', [script, 'baseline', dir, '--rules', rules]);
+    const row = (ruleId, file, event) => JSON.stringify({ ts: new Date().toISOString(), event, ruleId, file, line: 1 });
+    fs.writeFileSync(path.join(dir, '.claude/codemyrules/failures.log'), [
+      row('gen-often', 'src/domain/orders/a.ts', 'edit'), row('gen-often', 'src/domain/orders/b.ts', 'edit'),
+      row('gen-often', 'src/domain/billing/c.ts', 'edit'), row('gen-often', 'src/api/d.ts', 'turn'),
+      row('gen-late', 'src/x.ts', 'turn'), row('gen-late', 'src/y.ts', 'turn'), row('gen-late', 'src/z.ts', 'turn'),
+    ].join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'a'.repeat(600));
+    const out = execFileSync('node', [script, 'report', dir], { encoding: 'utf8' });
+    assert.match(out, /gen-often failed 4 times[^\n]*mostly in src\/domain\/[^\n]*pointer in src\/domain\/CLAUDE\.md/);
+    assert.match(out, /gen-never has not failed since/);
+    assert.match(out, /gen-late is caught mostly at the end of the turn[^\n]*fast tier/);
+    assert.doesNotMatch(out, /gen-never is caught/);
+    assert.match(out, /always-loaded agent docs grew by 50 tokens/);
+  });
+});
+
+test('report gives no advice when there is nothing to act on', () => {
+  withRepo((dir) => {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'a'.repeat(400));
+    git(dir, 'add', 'CLAUDE.md');
+    execFileSync('node', [script, 'baseline', dir]);
+    const out = execFileSync('node', [script, 'report', dir], { encoding: 'utf8' });
+    assert.doesNotMatch(out, /advice/i);
   });
 });

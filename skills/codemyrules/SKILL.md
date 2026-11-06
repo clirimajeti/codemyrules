@@ -48,7 +48,8 @@ Look these up rather than asking:
 - **Shared context, detected once here**: agent docs (always loaded or on demand), decision records, and the CI steps that run lint.
   Hand them to both sub-skills in step 2 instead of letting each detect them again.
 - **A previous run**: `.claude/codemyrules/baseline.json`.
-  When it exists, run `node <skill-dir>/scripts/measure.mjs report <project-dir>` now, for step 7.
+  When it exists, run `node <skill-dir>/scripts/measure.mjs report <project-dir>` now, for step 7, and `codemyrules status <project-dir>` to see whether the loop's hooks still run.
+  Hooks that run copies from before the npm package, or a CLI that is missing, are reinstalled in step 5 with the project's own `loop.json`.
 
 Count with `rg -c` and `rg --files`, always with a path (with several `-g` globs the last matching one wins, so put exclusions like `-g '!*.spec.ts'` after the includes), and leave out vendored and generated folders (`node_modules/`, `dist/`, `build/`, `target/`).
 A repository with both stacks: note each stack's root folder, so every candidate has one owner.
@@ -143,6 +144,8 @@ Draft the config in a temporary file outside the project, as `loop.json`:
 - **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.
 - `command` is the project's own invocation with JSON output, and `"{files}"` is its own element.
   `extensions` are the file types that linter covers in this project.
+- **Monorepos**: when a linter and its config live in one package (`apps/web/` with its own `node_modules` and `eslint.config.mjs`), add `"cwd": "apps/web"` and write `command` as it runs from there; list one entry per package that lints differently.
+  The linter then starts in that folder and gets only the edited files inside it, so another package's files never reach the wrong config.
 - `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`), rule folders (`eslint-rules/**`, `ast-grep/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
   Leave out shared build files such as `package.json`, `pom.xml` or `pyproject.toml`, where an ask on every edit would be noise: the guard already asks for edits to the lint settings inside `package.json`, `pyproject.toml`, `setup.cfg` and `tox.ini`; mention in the report that lint settings inside other build files, such as plugin config in `pom.xml` or `build.gradle`, are not guarded.
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
@@ -185,8 +188,8 @@ Keep it short, frontend and backend apart:
 - where each kept pointer went
 - the feedback loop: installed (the linters per tier and the protected paths) or not (the plan and how to install it later)
 - the baseline: always-loaded and on-demand doc tokens, rule count, open hits; the always-loaded number is the context every session pays for, so report it as tokens per session rather than as a one-off saving
-- on a re-run, the output of `measure.mjs report`: always-loaded and on-demand doc tokens then and now, and per rule its open hits at baseline and the failures logged since
+- on a re-run, the output of `measure.mjs report`: always-loaded and on-demand doc tokens then and now, per rule its open hits at baseline and the failures logged since, and its advice lines
 
-A rule that fails often in the log is a sign it needs an up-front pointer: say so.
+Pass the report's advice on as proposals, each with its numbers: a rule that keeps failing needs an up-front pointer, a rule caught mostly at the end of the turn belongs in the fast tier, and a doc line for a rule that never failed can likely go.
 Present the benefit honestly: the doc tokens removed matter only for always-loaded lines; the larger effect is fewer fix rounds, which shows up in the failure log and in review, not in the character count.
 Close with the sub-skills' step 7 round for any design questions answered on the user's behalf.

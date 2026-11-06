@@ -73,7 +73,8 @@ export function projectPath(cwd, file) {
   return rel === '..' || rel.startsWith('../') || path.isAbsolute(rel) ? null : rel;
 }
 
-export function protectReason(cwd, rel) {
+// alsoProtect: patterns that count too, such as the protect list from before a command that may have rewritten loop.json
+export function protectReason(cwd, rel, alsoProtect = []) {
   if (rel.startsWith(`${CONFIG_DIR}/`) || rel === SETTINGS_FILE) return `${rel} is part of the codemyrules setup.`;
   let protect;
   try {
@@ -81,7 +82,7 @@ export function protectReason(cwd, rel) {
   } catch (e) {
     return `loop.json could not be read (${e.message.split('\n')[0]}), so this edit needs your approval.`;
   }
-  const hit = protect.find((p) => matchesPattern(rel, p));
+  const hit = [...protect, ...alsoProtect].find((p) => matchesPattern(rel, p));
   return hit ? `${rel} is protected (${hit}).` : null;
 }
 

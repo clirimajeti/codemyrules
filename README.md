@@ -159,11 +159,11 @@ Three tiers, each silent when clean:
 - **Private.**
   The hooks go into `.claude/settings.local.json`, the config into `.claude/codemyrules/`, and both into `.git/info/exclude`.
   No tracked file changes.
+  Sharing it with your team is a later, separate step.
 - **One copy, kept current.**
   The hooks run the [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package, installed globally, so `npm update -g codemyrules` updates every project at once.
-  Sharing it with your team is a later, separate step.
 
-To uninstall, delete `.claude/codemyrules/` and the six codemyrules entries in `.claude/settings.local.json`, and `npm uninstall -g codemyrules` once no project uses it.
+`codemyrules status .` shows what is installed and what failed lately; `codemyrules uninstall . --apply` removes it again (dry run without `--apply`).
 [`references/feedback-loop.md`](skills/codemyrules/references/feedback-loop.md) has the details.
 
 ## Harness Support
@@ -200,19 +200,16 @@ skills/codemyrules/
     ├── shell-guard.mjs         # Claude Code adapter: Pre- and PostToolUse hook on Bash and NotebookEdit
     ├── lint-edited.mjs         # Claude Code adapter: PostToolUse hook, fast tier
     ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
-    └── test/                   # node:test suites
+    └── test/                   # node:test suites, and release-check.mjs
+evals/                          # claude plugin eval cases for the skill
+scripts/eval.sh                 # runs them, with the two sub-skill plugins staged next to it
 ```
 
 Run the tests with `npm test`.
+Before a release, `npm run release-check` packs the package, installs it into a throwaway npm prefix and drives a few headless Claude Code sessions (Haiku) against it in a throwaway repo; it needs `claude` logged in and takes about a minute.
 To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project uses it.
-A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match) and runs `npm publish`.
-
-Run the tests:
-
-```bash
-node --test skills/codemyrules/scripts/test/*.test.mjs
-```
-
+`npm run eval` runs the skill's eval cases with `claude plugin eval` (pass `-- --runs 3` and the like through); it copies the two sibling sub-skill checkouts into `.eval-deps/` first, because an eval loads no other plugins.
+A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match), runs `npm publish`, and only then pushes, so the skill never names an unpublished version.
 ## Flowchart
 
 ```mermaid

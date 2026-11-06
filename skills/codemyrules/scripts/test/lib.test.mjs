@@ -368,3 +368,27 @@ test('dirtyFiles lists changed, deleted and untracked files, never secret files'
     assert.deepEqual([...dirtyFiles(dir)].sort(), ['a.ts', 'b.ts', odd].sort());
   });
 });
+
+test('runLinters runs a linter with a cwd in that folder, with only its files, relative to it', () => {
+  withTmp((dir) => {
+    fs.mkdirSync(path.join(dir, 'apps/web/src'), { recursive: true });
+    // reports every file it gets as a relative path, the way ast-grep does
+    const script = 'const fs=require("fs"); fs.writeFileSync("seen.json", JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(1) }));'
+      + 'process.stdout.write(JSON.stringify(process.argv.slice(1).map((f) => ({ file: f, range: { start: { line: 1 } }, ruleId: "r", message: "m", severity: "error" }))))';
+    const l = { name: 'web', format: 'ast-grep', cwd: 'apps/web', command: [process.execPath, '-e', script, '{files}'], extensions: ['.ts'], tier: 'fast' };
+    const r = runLinters(dir, [l], ['apps/web/src/a.ts', 'packages/api/b.ts', 'apps/web/c.ts']);
+    assert.deepEqual(r.notes, []);
+    const seen = JSON.parse(fs.readFileSync(path.join(dir, 'apps/web/seen.json'), 'utf8'));
+    assert.equal(fs.realpathSync(seen.cwd), fs.realpathSync(path.join(dir, 'apps/web')));
+    assert.deepEqual(seen.args, [path.join('src', 'a.ts'), 'c.ts']);
+    // findings come back relative to the project root, so they match the changed lines
+    assert.deepEqual(r.findings.map((f) => `${f.file}:${f.line}`), ['apps/web/src/a.ts:2', 'apps/web/c.ts:2']);
+  });
+});
+
+test('runLinters skips a linter with a cwd when none of the files are inside it', () => {
+  withTmp((dir) => {
+    const l = { name: 'web', format: 'eslint', cwd: 'apps/web', command: ['definitely-not-a-command', '{files}'], extensions: ['.ts'], tier: 'fast' };
+    assert.deepEqual(runLinters(dir, [l], ['packages/api/b.ts']), { findings: [], notes: [] });
+  });
+});

@@ -3,14 +3,39 @@
   "version": "0.5.0",
   "description": "Lint feedback loop for coding agents: the hooks behind the codemyrules skill, which turns the rules in CLAUDE.md / AGENTS.md into lint rules.",
   "type": "module",
-  "bin": { "codemyrules": "skills/codemyrules/scripts/cli.mjs" },
-  "files": ["skills/codemyrules/scripts/*.mjs", "skills/codemyrules/scripts/core/"],
-  "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test \"skills/codemyrules/scripts/test/*.test.mjs\"" },
-  "keywords": ["lint", "eslint", "ast-grep", "claude-code", "hooks", "agents", "claude-md", "agents-md"],
+  "bin": {
+    "codemyrules": "skills/codemyrules/scripts/cli.mjs"
+  },
+  "files": [
+    "skills/codemyrules/scripts/*.mjs",
+    "skills/codemyrules/scripts/core/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"skills/codemyrules/scripts/test/*.test.mjs\"",
+    "release-check": "node skills/codemyrules/scripts/test/release-check.mjs",
+    "eval": "scripts/eval.sh"
+  },
+  "keywords": [
+    "lint",
+    "eslint",
+    "ast-grep",
+    "claude-code",
+    "hooks",
+    "agents",
+    "claude-md",
+    "agents-md"
+  ],
   "author": "clirimajeti <clirimajeti@gmail.com> (https://github.com/clirimajeti)",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/clirimajeti/codemyrules.git" },
-  "bugs": { "url": "https://github.com/clirimajeti/codemyrules/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clirimajeti/codemyrules.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clirimajeti/codemyrules/issues"
+  },
   "homepage": "https://github.com/clirimajeti/codemyrules"
 }

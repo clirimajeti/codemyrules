@@ -28,7 +28,8 @@ export function realPath(p) {
     return parent === p ? p : path.join(realPath(parent), path.basename(p));
   }
 }
-const relFile = (cwd, file) => { const real = realPath(cwd); return toPosix(path.relative(real, path.resolve(real, file))); };
+// a linter's path (absolute, or relative to the folder it ran in) as a path relative to the project root
+const relFile = (cwd, file, base = cwd) => toPosix(path.relative(realPath(cwd), path.resolve(realPath(base), file)));
 
 // git C-quotes a path that holds ", \ or a control character, even with core.quotepath=off: "b/we\"ird.ts"
 const ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
@@ -97,7 +98,9 @@ export function dirtyFiles(cwd) {
   if (!inRepo(cwd)) return null;
   const spec = pathspec();
   const tracked = hasHead(cwd)
-    ? git(cwd, ['diff', '--name-only', '-z', '--no-renames', '--relative', 'HEAD', ...spec])
+    // diff-index compares stat data only (git diff reads every changed file: 350 ms against 16 ms for 5000 files);
+    // a file that was only touched is listed too, and the content hash then shows it unchanged
+    ? git(cwd, ['diff-index', '--name-only', '-z', '--no-renames', '--relative', 'HEAD', ...spec])
     : git(cwd, ['ls-files', '--cached', '-z', ...spec]);
   return new Set([...names(tracked.stdout), ...names(git(cwd, ['ls-files', '--others', '--exclude-standard', '-z', ...spec]).stdout)]);
 }
@@ -117,22 +120,23 @@ export function hashFiles(cwd, files, write = false) {
 export const readBlob = (cwd, rev) => { const r = git(cwd, ['cat-file', 'blob', rev]); return r.status === 0 ? r.stdout : ''; };
 
 const parsers = {
-  eslint: (data, cwd) => data.flatMap((r) => r.messages.map((m) => ({
-    file: relFile(cwd, r.filePath), line: m.line, ruleId: m.ruleId ?? 'eslint',
+  eslint: (data, cwd, base) => data.flatMap((r) => r.messages.map((m) => ({
+    file: relFile(cwd, r.filePath, base), line: m.line, ruleId: m.ruleId ?? 'eslint',
     message: m.message, severity: m.severity === 2 ? 'error' : 'warning',
   }))),
-  'ast-grep': (data, cwd) => data.map((m) => ({
-    file: relFile(cwd, m.file), line: m.range.start.line + 1, ruleId: m.ruleId,
+  'ast-grep': (data, cwd, base) => data.map((m) => ({
+    file: relFile(cwd, m.file, base), line: m.range.start.line + 1, ruleId: m.ruleId,
     message: m.message, severity: m.severity === 'error' ? 'error' : 'warning',
   })),
-  ruff: (data, cwd) => data.map((m) => ({
-    file: relFile(cwd, m.filename), line: m.location.row, ruleId: m.code,
+  ruff: (data, cwd, base) => data.map((m) => ({
+    file: relFile(cwd, m.filename, base), line: m.location.row, ruleId: m.code,
     message: m.message, severity: 'error',
   })),
 };
 
-export function parseLinterOutput(format, stdout, cwd) {
-  return parsers[format](JSON.parse(stdout), cwd);
+// base: the folder the linter ran in, when it is not the project root
+export function parseLinterOutput(format, stdout, cwd, base = cwd) {
+  return parsers[format](JSON.parse(stdout), cwd, base);
 }
 
 export function onChangedLines(findings, changed) {
@@ -153,17 +157,21 @@ export function runLinters(cwd, linters, files, budget = BUDGET_MS.edit) {
   const notes = [];
   const deadline = Date.now() + budget;
   for (const l of linters) {
-    const mine = files.filter((f) => !isSecretFile(f) && l.extensions.includes(path.extname(f)));
+    // a linter with a cwd (one package of a monorepo) runs there, on its own files only, named relative to it
+    const base = l.cwd ? path.join(cwd, l.cwd) : cwd;
+    const inside = (f) => { const r = path.relative(base, path.join(cwd, f)); return !r.startsWith('..') && !path.isAbsolute(r); };
+    const mine = files.filter((f) => !isSecretFile(f) && l.extensions.includes(path.extname(f)) && (!l.cwd || inside(f)));
     if (!mine.length) continue;
     const timeout = deadline - Date.now();
     if (timeout <= 0) { notes.push(`codemyrules: ${l.name} skipped: time budget ${budget / 1000}s used up`); continue; }
-    const command = l.command.flatMap((a) => (a === '{files}' ? mine : [a]));
+    const args = l.cwd ? mine.map((f) => path.relative(base, path.join(cwd, f))) : mine;
+    const command = l.command.flatMap((a) => (a === '{files}' ? args : [a]));
     // SIGKILL: a linter that ignores SIGTERM would otherwise keep the hook waiting
-    const r = spawnSync(command[0], command.slice(1), { cwd, encoding: 'utf8', maxBuffer: 1 << 28, timeout, killSignal: 'SIGKILL' });
+    const r = spawnSync(command[0], command.slice(1), { cwd: base, encoding: 'utf8', maxBuffer: 1 << 28, timeout, killSignal: 'SIGKILL' });
     try {
       if (r.error?.code === 'ETIMEDOUT') throw new Error(`timed out (time budget ${budget / 1000}s)`);
       if (r.error) throw r.error;
-      findings.push(...parseLinterOutput(l.format, r.stdout, cwd));
+      findings.push(...parseLinterOutput(l.format, r.stdout, cwd, base));
     } catch (e) {
       const reason = (r.error ? '' : (r.stderr || '').split('\n')[0].trim()) || e.message.split('\n')[0];
       notes.push(`codemyrules: ${l.name} failed: ${reason}`);
@@ -206,7 +214,7 @@ export function readLoopConfig(cwd) {
   }
   const list = (v) => (Array.isArray(v) ? v : []);
   return {
-    linters: list(raw?.linters).filter((l) => Array.isArray(l?.command) && Array.isArray(l.extensions)),
+    linters: list(raw?.linters).filter((l) => Array.isArray(l?.command) && Array.isArray(l.extensions) && (l.cwd === undefined || typeof l.cwd === 'string')),
     protect: list(raw?.protect).filter((p) => typeof p === 'string'),
   };
 }

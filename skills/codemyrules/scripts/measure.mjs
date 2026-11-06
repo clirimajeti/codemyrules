@@ -59,7 +59,7 @@ export function docTokens(cwd) {
 }
 
 export function logStats(cwd) {
-  const stats = { total: 0, byRule: {}, byEvent: { edit: 0, turn: 0 } };
+  const stats = { total: 0, byRule: {}, byEvent: { edit: 0, turn: 0 }, files: {}, ruleEvents: {} };
   let raw = '';
   try {
     raw = fs.readFileSync(path.join(cwd, CONFIG_DIR, 'failures.log'), 'utf8');
@@ -72,6 +72,9 @@ export function logStats(cwd) {
     stats.total++;
     stats.byRule[row.ruleId] = (stats.byRule[row.ruleId] ?? 0) + 1;
     if (row.event in stats.byEvent) stats.byEvent[row.event]++;
+    if (row.file) (stats.files[row.ruleId] ??= []).push(row.file);
+    const ev = (stats.ruleEvents[row.ruleId] ??= { edit: 0, turn: 0 });
+    if (row.event in ev) ev[row.event]++;
   }
   return stats;
 }
@@ -83,6 +86,34 @@ function baseline(dir, rulesFile) {
   const d = docTokens(dir);
   fs.writeFileSync(out, JSON.stringify({ date: new Date().toISOString(), docTokens: d.total, alwaysTokens: d.always, onDemandTokens: d.onDemand, rules }, null, 2) + '\n');
   console.log(`baseline written: ${out}`);
+}
+
+// What to do next, from the failure log and the doc tokens; no line without numbers behind it.
+export function advice(b, stats, now) {
+  const out = [];
+  const since = b.date.slice(0, 10);
+  for (const [id, n] of Object.entries(stats.byRule).sort((x, y) => y[1] - x[1])) {
+    const ev = stats.ruleEvents[id] ?? { edit: 0, turn: 0 };
+    if (n >= 3) {
+      // the folder two levels deep where it fails most, where a folder CLAUDE.md loads only for that code
+      const counts = {};
+      for (const f of stats.files[id] ?? []) { const d = f.split('/').slice(0, -1).slice(0, 2).join('/'); if (d) counts[d] = (counts[d] ?? 0) + 1; }
+      const [top, c] = Object.entries(counts).sort((x, y) => y[1] - x[1])[0] ?? [];
+      const where = top && c * 2 >= n ? `, mostly in ${top}/` : '';
+      const pointer = top && c * 2 >= n ? `${top}/CLAUDE.md` : 'the CLAUDE.md of the folder it applies to';
+      out.push(`${id} failed ${n} times since ${since}${where}: the agent meets it only after writing the code; a one-line pointer in ${pointer} lets it write the right code first.`);
+    }
+    if (n >= 3 && ev.turn > 2 * ev.edit) {
+      out.push(`${id} is caught mostly at the end of the turn (${ev.turn} of ${n}): a linter for it in the fast tier would tell the agent while it is still in the file.`);
+    }
+  }
+  for (const id of Object.keys(b.rules ?? {})) {
+    if (!stats.byRule[id]) out.push(`${id} has not failed since ${since}: if an agent doc still states it, that line can likely go.`);
+  }
+  if (b.alwaysTokens !== undefined && now.always > b.alwaysTokens * 1.1) {
+    out.push(`always-loaded agent docs grew by ${now.always - b.alwaysTokens} tokens since ${since}, which every session pays: check whether the new lines could be rules.`);
+  }
+  return out;
 }
 
 function report(dir) {
@@ -99,6 +130,8 @@ function report(dir) {
   console.log(`rules: ${Object.keys(b.rules).length} -> ${ids.size}`);
   for (const id of ids) console.log(`  ${id}: ${b.rules[id] ?? 0} open at baseline, ${stats.byRule[id] ?? 0} logged failures since`);
   console.log(`failures logged: ${stats.total} (edit: ${stats.byEvent.edit}, turn: ${stats.byEvent.turn})`);
+  const tips = advice(b, stats, now);
+  if (tips.length) console.log(`advice:\n${tips.map((t) => `  - ${t}`).join('\n')}`);
 }
 
 // args: the command-line arguments after the script name; returns the exit code

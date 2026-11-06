@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: claude-md-to-rules
+expected_outcome: |
+  codemyrules routes the JS/TS work to eslint-pattern-rules and turns only the CLAUDE.md storage line into an ESLint rule, with a message that names CLAUDE.md and says to use readSetting/writeSetting, flagging CartBadge.tsx and theme.ts; the business and tooling lines stay prose, no doc is edited with nobody to answer, and no feedback loop is installed because the user said not to.
+context:
+  scaffold_script: place-files.sh

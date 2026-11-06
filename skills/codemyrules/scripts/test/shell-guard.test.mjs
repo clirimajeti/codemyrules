@@ -157,3 +157,100 @@ test('snapshots and turn files left over for a day are swept, fresh ones stay', 
   assert.ok(!left.includes('shell-denied.json') && !left.includes('turn-crashed.txt'), left.join());
   assert.ok(left.includes('shell-running.json') && left.includes('turn-live.txt'), left.join());
 });
+
+test('the codemyrules installer may change the setup: the user is told, the agent is not sent back', (t) => {
+  const dir = repo(t);
+  const installer = { tool_input: { command: 'codemyrules install . --config /tmp/loop.json --apply' } };
+  assert.equal(hook(dir, 'PreToolUse', installer).status, 0);
+  write(dir, '.claude/codemyrules/loop.json', '{"linters":[],"protect":["x/**"]}');
+  write(dir, '.claude/settings.local.json', '{"hooks":{}}');
+  const r = hook(dir, 'PostToolUse', installer);
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.decision, undefined);
+  assert.match(out.systemMessage, /installer changed .*loop\.json/s);
+  assert.match(out.systemMessage, /settings\.local\.json/);
+});
+
+test('an installer command that also changes a protected file still blocks for that file', (t) => {
+  const dir = repo(t);
+  const both = { tool_input: { command: 'node ~/x/install.mjs . --apply; sed -i "" s/a/b/ eslint.config.mjs' } };
+  assert.equal(hook(dir, 'PreToolUse', both).status, 0);
+  write(dir, '.claude/codemyrules/loop.json', '{"linters":[],"protect":[]}');
+  write(dir, 'eslint.config.mjs', 'export default [{ rules: {} }];\n');
+  const out = JSON.parse(hook(dir, 'PostToolUse', both).stdout);
+  assert.equal(out.decision, 'block');
+  assert.match(out.reason, /eslint\.config\.mjs is protected/);
+  assert.doesNotMatch(out.reason, /loop\.json/);
+  assert.match(out.systemMessage, /installer changed .*loop\.json/s);
+});
+
+test('a command that only mentions install.mjs in passing is not the installer', (t) => {
+  const dir = repo(t);
+  const fake = { tool_input: { command: 'echo {} > .claude/codemyrules/loop.json # not install.mjs' } };
+  assert.equal(hook(dir, 'PreToolUse', fake).status, 0);
+  write(dir, '.claude/codemyrules/loop.json', '{}');
+  assert.equal(JSON.parse(hook(dir, 'PostToolUse', fake).stdout).decision, 'block');
+});
+
+test('runsInstaller knows the installer by the first word of a command part', async () => {
+  const { runsInstaller } = await import('../core/snapshot.mjs');
+  for (const c of ['codemyrules install . --apply', 'npx -y codemyrules@0.5.0 install . --apply', 'cd x && codemyrules uninstall . --apply',
+    'node /p/skills/codemyrules/scripts/install.mjs . --config a.json', 'node "C:/p/install.mjs" .', 'FOO=1 codemyrules install .']) assert.equal(runsInstaller(c), true, c);
+  for (const c of ['echo codemyrules install', 'cat install.mjs', 'echo x # node install.mjs', 'codemyrules status .', 'node reinstall.mjs.bak', undefined]) assert.equal(runsInstaller(c), false, String(c));
+});
+
+test('emptying the protect list and editing a protected file in one command still blocks', (t) => {
+  const dir = repo(t);
+  assert.equal(hook(dir, 'PreToolUse').status, 0);
+  write(dir, '.claude/codemyrules/loop.json', '{"linters":[],"protect":[]}');
+  write(dir, 'eslint.config.mjs', 'export default [{ rules: {} }];\n');
+  const out = JSON.parse(hook(dir, 'PostToolUse').stdout);
+  assert.equal(out.decision, 'block');
+  assert.match(out.reason, /eslint\.config\.mjs is protected/);
+});
+
+test('tools installed inside the setup folder are not snapshotted', (t) => {
+  const dir = repo(t);
+  const nm = path.join(dir, '.claude/codemyrules/node_modules/eslint/lib');
+  fs.mkdirSync(nm, { recursive: true });
+  for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(nm, `m${i}.mjs`), 'export {};\n');
+  assert.equal(hook(dir, 'PreToolUse').status, 0);
+  const snap = JSON.parse(fs.readFileSync(path.join(dir, '.claude/codemyrules/shell-tu_1.json'), 'utf8'));
+  assert.deepEqual(Object.keys(snap).filter((f) => f.includes('node_modules')), []);
+  assert.ok('.claude/codemyrules/loop.json' in snap);
+});
+
+test('a content change that keeps the size and restores the mtime is still caught', (t) => {
+  const dir = repo(t);
+  write(dir, 'src/a.ts', 'x();\n// aaaaaaaaaaaaaaaaaaaaa\n'); // dirty before the command
+  const p = path.join(dir, 'src/a.ts');
+  const { atime, mtime } = fs.statSync(p);
+  const out = around(dir, () => {
+    fs.writeFileSync(p, 'x();\n// eslint-disable-line\n'); // same length as before
+    fs.utimesSync(p, atime, mtime);
+  });
+  assert.equal(out?.decision, 'block');
+  assert.match(out.reason, /src\/a\.ts/);
+});
+
+test('touching a file without changing it is not a change', (t) => {
+  const dir = repo(t);
+  write(dir, 'src/a.ts', 'x(); // eslint-disable-line\n'); // the user's own suppression
+  const p = path.join(dir, 'src/a.ts');
+  assert.equal(around(dir, () => { const later = new Date(Date.now() + 5000); fs.utimesSync(p, later, later); }), null);
+  assert.equal(turn(dir), '');
+});
+
+test('a second command reuses the hashes of files that did not change, and stale cache entries are not trusted', (t) => {
+  const dir = repo(t);
+  write(dir, 'src/a.ts', 'x(); // eslint-disable-line\n');
+  assert.equal(around(dir, () => {}), null);
+  const cache = path.join(dir, '.claude/codemyrules/hash-cache.json');
+  const c = JSON.parse(fs.readFileSync(cache, 'utf8'));
+  assert.ok(c['src/a.ts']?.h, 'the dirty file is cached');
+  // a cache entry from long ago with a wrong hash: trusting it would make the suppression look new
+  c['src/a.ts'] = { ...c['src/a.ts'], h: '0'.repeat(40), t: Date.now() - 3 * 24 * 3600 * 1000 };
+  fs.writeFileSync(cache, JSON.stringify(c));
+  assert.equal(around(dir, () => write(dir, 'src/b.ts', 'z();\n')), null);
+});

@@ -68,3 +68,64 @@ test('the package ships the scripts and nothing else of the repo', () => {
   const bin = json('package.json').bin.codemyrules;
   assert.match(fs.readFileSync(path.join(ROOT, bin), 'utf8'), /^#!\/usr\/bin\/env node\n/);
 });
+
+function installedRepo(t) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-')));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-q'], { cwd: dir });
+  const cfg = path.join(dir, '..', `${path.basename(dir)}-loop.json`);
+  t.after(() => fs.rmSync(cfg, { force: true }));
+  fs.writeFileSync(cfg, JSON.stringify({ linters: [{ name: 'eslint', format: 'eslint', tier: 'full', extensions: ['.ts'], cwd: '.', command: ['node', 'x.js', '{files}'] }], protect: ['**/eslint.config.*'] }));
+  const sp = path.join(dir, '.claude/settings.local.json');
+  fs.mkdirSync(path.dirname(sp), { recursive: true });
+  fs.writeFileSync(sp, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } }));
+  const r = cli(['install', dir, '--config', cfg, '--cli', CLI, '--apply']);
+  assert.equal(r.status, 0, r.stderr);
+  return { dir, sp };
+}
+
+test('uninstall is a dry run by default, then removes the setup and only codemyrules hook entries', (t) => {
+  const { dir, sp } = installedRepo(t);
+  fs.writeFileSync(path.join(dir, '.claude/codemyrules/failures.log'), '{"ruleId":"r"}\n');
+  const dry = cli(['uninstall', dir]);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /delete .*\.claude[/\\]codemyrules/);
+  assert.match(dry.stdout, /failures\.log/);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules/loop.json')));
+  assert.equal(cli(['uninstall', dir, '--apply']).status, 0);
+  assert.equal(fs.existsSync(path.join(dir, '.claude/codemyrules')), false);
+  const commands = Object.values(JSON.parse(fs.readFileSync(sp, 'utf8')).hooks).flat().flatMap((e) => e.hooks.map((h) => h.command));
+  assert.deepEqual(commands, ['echo mine']);
+  assert.match(cli(['uninstall', dir]).stdout, /nothing to change/);
+});
+
+test('status shows the package, the hooks, the config and recent failures', (t) => {
+  const { dir } = installedRepo(t);
+  const now = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, '.claude/codemyrules/failures.log'), [
+    { ts: now, event: 'edit', ruleId: 'no-raw-fetch' }, { ts: now, event: 'turn', ruleId: 'no-raw-fetch' },
+    { ts: '2020-01-01T00:00:00.000Z', event: 'edit', ruleId: 'old-rule' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const r = cli(['status', dir]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`codemyrules ${json('package.json').version.replace(/\./g, '\\.')}`));
+  assert.match(r.stdout, /hooks: 6 entries, all run .*cli\.mjs/);
+  assert.match(r.stdout, /eslint \(full, \.ts, cwd \.\)/);
+  assert.match(r.stdout, /\*\*\/eslint\.config\.\*/);
+  assert.match(r.stdout, /no-raw-fetch: 2/);
+  assert.doesNotMatch(r.stdout, /old-rule/);
+});
+
+test('status names broken hooks, copies from 0.4 and a missing install', (t) => {
+  const { dir, sp } = installedRepo(t);
+  const s = JSON.parse(fs.readFileSync(sp, 'utf8'));
+  s.hooks.Stop.push({ hooks: [{ type: 'command', command: 'node "/gone/cli.mjs" hook turn' }] });
+  fs.writeFileSync(sp, JSON.stringify(s));
+  fs.writeFileSync(path.join(dir, '.claude/codemyrules/guard.mjs'), 'old');
+  const r = cli(['status', dir]);
+  assert.match(r.stdout, /missing: \/gone\/cli\.mjs/);
+  assert.match(r.stdout, /copies from before the npm package: guard\.mjs/);
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
+  t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
+  assert.match(cli(['status', empty]).stdout, /not installed/);
+});

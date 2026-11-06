@@ -279,3 +279,21 @@ test('without --cli the hooks point at the global npm package, and without one t
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
   assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${cli}" hook turn`);
 });
+
+test('validateLoopConfig checks a linter cwd and resolves its command and config from there', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'apps/web/node_modules/.bin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'apps/web/node_modules/.bin/eslint'), '');
+    fs.writeFileSync(path.join(dir, 'apps/web/eslint.config.mjs'), '');
+    const web = { ...goodLinter, cwd: 'apps/web', command: ['node_modules/.bin/eslint', '-c', 'eslint.config.mjs', '--format', 'json', '{files}'] };
+    assert.deepEqual(validateLoopConfig({ linters: [web], protect: [] }, dir), []);
+    const errs = (l) => validateLoopConfig({ linters: [{ ...web, ...l }], protect: [] }, dir).join('\n');
+    assert.match(errs({ cwd: 'apps/nope' }), /linters\[0\]\.cwd "apps\/nope" is not a folder in the project/);
+    assert.match(errs({ cwd: '../elsewhere' }), /linters\[0\]\.cwd .* in the project/);
+    assert.match(errs({ cwd: 3 }), /linters\[0\]\.cwd must be a path/);
+    // without the cwd, the same command and config are looked up from the root, where they do not exist
+    const { cwd, ...rootLinter } = web;
+    assert.match(validateLoopConfig({ linters: [rootLinter], protect: [] }, dir).join('\n'), /is not installed/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

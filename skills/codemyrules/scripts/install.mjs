@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { CONFIG_DIR, SETTINGS_FILE, isMain } from './core/lib.mjs';
+import { CONFIG_DIR, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
 const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
@@ -116,6 +116,17 @@ export function validateLoopConfig(cfg, projectDir) {
   if (cfg.linters !== undefined && !Array.isArray(cfg.linters)) return [...errs, 'linters must be a list'];
   (cfg.linters ?? []).forEach((l, i) => {
     const at = `linters[${i}]`;
+    // a linter with a cwd runs in that folder, so its command and config paths resolve from there
+    let base = projectDir;
+    if (l && typeof l === 'object' && l.cwd !== undefined) {
+      if (typeof l.cwd !== 'string' || !l.cwd) errs.push(`${at}.cwd must be a path relative to the project root`);
+      else {
+        const abs = path.resolve(projectDir, l.cwd);
+        const rel = path.relative(projectDir, abs);
+        if (rel.startsWith('..') || path.isAbsolute(rel) || !fs.statSync(abs, { throwIfNoEntry: false })?.isDirectory()) errs.push(`${at}.cwd "${l.cwd}" is not a folder in the project`);
+        else base = abs;
+      }
+    }
     if (!l || typeof l !== 'object') return errs.push(`${at} must be an object`);
     if (typeof l.name !== 'string' || !l.name.trim()) errs.push(`${at}.name must be a non-empty string`);
     if (!FORMATS.includes(l.format)) errs.push(`${at}.format is "${l.format}", expected one of ${FORMATS.join(', ')}`);
@@ -123,7 +134,7 @@ export function validateLoopConfig(cfg, projectDir) {
     else if (!l.command.includes('{files}')) errs.push(`${at}.command must contain the element "{files}"`);
     if (!isStrList(l.extensions) || !l.extensions.length || !l.extensions.every((e) => e.startsWith('.'))) errs.push(`${at}.extensions must be a list like [".ts", ".vue"]`);
     if (!TIERS.includes(l.tier)) errs.push(`${at}.tier is "${l.tier}", expected fast or full`);
-    if (isStrList(l.command) && l.command.length && !findExecutable(l.command[0], projectDir)) {
+    if (isStrList(l.command) && l.command.length && !findExecutable(l.command[0], base)) {
       errs.push(`${at}: "${l.command[0]}" is not installed (not on PATH, or no such file in the project); every run would fail, so this linter would never block anything. Install it, or use a command that is available`);
     }
     const runner = isStrList(l.command) && packageRunner(l.command);
@@ -133,14 +144,14 @@ export function validateLoopConfig(cfg, projectDir) {
     if (isStrList(l.command)) {
       l.command.forEach((c, j) => {
         const file = (c === '-c' || c === '--config') ? l.command[j + 1] : undefined;
-        if (file && file !== '{files}' && !fs.existsSync(path.resolve(projectDir, file))) {
+        if (file && file !== '{files}' && !fs.existsSync(path.resolve(base, file))) {
           errs.push(`${at}: the config "${file}" after ${c} does not exist in the project; every run would fail`);
         }
       });
     }
     if (l.format === 'ast-grep' && isStrList(l.command) && !l.command.some((c) => c === '-c' || c === '--config')
-        && !['sgconfig.yml', 'sgconfig.yaml'].some((f) => fs.existsSync(path.join(projectDir, f)))) {
-      errs.push(`${at}: ast-grep needs an sgconfig.yml in the project root, or "-c <path>" in its command; without one every scan fails`);
+        && !['sgconfig.yml', 'sgconfig.yaml'].some((f) => fs.existsSync(path.join(base, f)))) {
+      errs.push(`${at}: ast-grep needs an sgconfig.yml in the folder it runs in (the project root, or its cwd), or "-c <path>" in its command; without one every scan fails`);
     }
   });
   return errs;
@@ -182,11 +193,15 @@ export function main(args) {
     console.error('codemyrules: the hooks run the codemyrules npm package, which is not installed globally. Install it with: npm install -g codemyrules');
     return 1;
   }
-  const items = plan(projectDir, cfg, cli);
+  return carryOut(plan(projectDir, cfg, cli), apply);
+}
+
+// print the plan, and with apply carry it out
+function carryOut(items, apply) {
   for (const i of items) console.log(`${i.action} ${i.path}\n${i.preview.replace(/^/gm, '  ')}`);
   if (!items.length) console.log('nothing to change');
   if (!apply) {
-    console.log('\ndry run: nothing written, re-run with --apply');
+    if (items.length) console.log('\ndry run: nothing written, re-run with --apply');
     return 0;
   }
   for (const i of items) {
@@ -194,6 +209,72 @@ export function main(args) {
     fs.mkdirSync(path.dirname(i.path), { recursive: true });
     fs.writeFileSync(i.path, i.content);
   }
+  return 0;
+}
+
+const projectArg = (args) => { const d = args.find((a) => !a.startsWith('--')); return d && path.resolve(d); };
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
+
+// removes the setup folder and codemyrules' own hook entries; the .git/info/exclude lines are harmless and stay
+export function uninstall(args) {
+  const projectDir = projectArg(args);
+  if (!projectDir) { console.error('usage: codemyrules uninstall <project-dir> [--apply]'); return 2; }
+  const items = [];
+  const dest = path.join(projectDir, CONFIG_DIR);
+  if (fs.existsSync(dest)) {
+    const files = fs.readdirSync(dest).join(', ');
+    items.push({ path: dest, action: 'delete', preview: `the loop config and its state: ${files || 'empty'}`, content: null });
+  }
+  const sp = path.join(projectDir, SETTINGS_FILE);
+  const settings = readJson(sp);
+  if (settings) {
+    const out = mergeSettings(settings, {});
+    const content = JSON.stringify(out, null, 2) + '\n';
+    const count = (s) => Object.values(s.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []).length;
+    if (count(out) !== count(settings)) items.push({ path: sp, action: 'update', preview: `removes ${count(settings) - count(out)} codemyrules hook entries, keeps the rest`, content });
+  }
+  return carryOut(items, args.includes('--apply'));
+}
+
+// what is installed in a project, whether its hooks can run, and what failed lately
+export function status(args) {
+  const projectDir = projectArg(args);
+  if (!projectDir) { console.error('usage: codemyrules status <project-dir>'); return 2; }
+  const version = readJson(new URL('../../../package.json', import.meta.url))?.version ?? 'unknown';
+  console.log(`codemyrules ${version}`);
+  const dest = path.join(projectDir, CONFIG_DIR);
+  const commands = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat()
+    .flatMap((e) => e?.hooks ?? []).map((h) => h.command).filter(ours);
+  if (!commands.length && !fs.existsSync(path.join(dest, 'loop.json'))) {
+    console.log(`not installed in ${projectDir}`);
+    return 0;
+  }
+  const targets = [...new Set(commands.map((c) => /^node "(.+)" hook \w+$/.exec(c)?.[1]).filter(Boolean))];
+  const copyHooks = commands.filter((c) => c.includes(`/${CONFIG_DIR}/`)).length;
+  const missing = targets.filter((t) => !fs.existsSync(t));
+  if (targets.length === 1 && !missing.length && !copyHooks) console.log(`hooks: ${commands.length} entries, all run ${targets[0]}`);
+  else {
+    console.log(`hooks: ${commands.length} entries`);
+    for (const t of targets) console.log(`  ${missing.includes(t) ? 'missing' : 'runs'}: ${t}`);
+    if (copyHooks) console.log(`  ${copyHooks} run copies from before the npm package; reinstall to replace them`);
+  }
+  const copies = COPIED.filter((f) => fs.existsSync(path.join(dest, f)));
+  if (copies.length) console.log(`copies from before the npm package: ${copies.join(', ')} (reinstall to remove them)`);
+  let cfg;
+  try { cfg = readLoopConfig(projectDir); } catch (e) { console.log(`loop.json could not be read: ${e.message.split('\n')[0]}`); return 0; }
+  console.log(`linters: ${cfg.linters.length ? '' : 'none'}`);
+  for (const l of cfg.linters) console.log(`  ${l.name} (${l.tier}, ${l.extensions.join(' ')}${l.cwd ? `, cwd ${l.cwd}` : ''})`);
+  console.log(`protected: ${cfg.protect.join(', ') || 'none'}`);
+  const since = Date.now() - 7 * 24 * 3600 * 1000;
+  const byRule = {};
+  for (const line of (fs.existsSync(path.join(dest, 'failures.log')) ? fs.readFileSync(path.join(dest, 'failures.log'), 'utf8') : '').split('\n')) {
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (Date.parse(row.ts) >= since) byRule[row.ruleId] = (byRule[row.ruleId] ?? 0) + 1;
+  }
+  const rules = Object.entries(byRule).sort((a, b) => b[1] - a[1]);
+  console.log(`failures in the last 7 days: ${rules.length ? '' : 'none'}`);
+  for (const [r, n] of rules) console.log(`  ${r}: ${n}`);
   return 0;
 }
 

@@ -36,6 +36,7 @@ When the turn ends again with findings left, it lets it end and shows the user w
 
 The fast tier runs only installed binaries: a package runner such as `npx` resolves the package on every edit, so the installer refuses one there.
 Each check diffs only the files it lints, not the whole repository.
+A linter with a `cwd` in `loop.json` (one package of a monorepo) runs in that folder, on the edited files inside it only.
 
 A linter that is missing, crashes or runs past the time budget never blocks: the hook prints one line, `codemyrules: <name> failed: <reason>`, and treats that linter as clean.
 The budget is shared by all linters of one check, 10 seconds after an edit and 60 at the end of the turn, so several linters cannot add up; a linter that starts after the budget is used up is skipped with a note.
@@ -66,18 +67,21 @@ With nobody to approve, the edit does not happen.
 
 ### Changes through the shell
 
-A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `shell-guard.mjs`, runs before and after each `Bash` and `NotebookEdit` call, also after one that fails (`PostToolUseFailure`): a failed command can still have changed files.
+A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `codemyrules hook shell`, runs before and after each `Bash` and `NotebookEdit` call, also after one that fails (`PostToolUseFailure`): a failed command can still have changed files.
 Before, it stores the content of every file that differs from `HEAD`, plus the codemyrules setup, in git's object store; after, it finds every file the call changed and checks it like an edit, including the protected paths.
-The change has already happened, so it cannot ask first: it blocks with a `PostToolUse` decision that tells the agent to undo the change or ask the user, and shows the user the same list.
+The change has already happened, so it cannot ask first: it tells the agent to undo the change or ask the user (a `PostToolUse` block, or added context after a failed command), and shows the user the same list.
 The files it changed are also recorded for the end-of-turn check.
-It costs about two git calls per hook; credential files are never read.
+It reads only what can have changed: git's stat data finds the uncommitted files, and a file is hashed again only when its size or times moved, so a hook takes about 60 ms in a small repository and about 100 ms with 5,000 uncommitted files.
+Credential files are never read.
 When two commands run in parallel, each one may also report the other's changes.
 A snapshot whose command never ran (the user denied it) and a turn list whose turn never ended are deleted once they are a day old.
+A command that runs the codemyrules installer (a part of it starting with `codemyrules install` or `uninstall`, or `node …/install.mjs`) may change the setup: those changes are shown to the user, and the agent is not sent back; every other file it changes is still checked.
+A file counts as protected when it was protected before the command or after it, so rewriting `loop.json` and editing a lint config in one command still blocks.
 CI, running the project's own lint setup, stays the safety net.
 
 ## Files
 
-Everything lives in the project, private to the user who installed it:
+Apart from the npm package, everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
@@ -85,6 +89,7 @@ Everything lives in the project, private to the user who installed it:
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
+| `.claude/codemyrules/turn-*.txt`, `shell-*.json`, `hash-cache.json` | runtime state: the files edited this turn, the snapshot around a shell command, and the hashes it reuses; left-overs older than a day are deleted |
 | `.claude/settings.local.json` | the six hook entries |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
@@ -95,11 +100,11 @@ Each entry runs `node "<global package>/skills/codemyrules/scripts/cli.mjs" hook
 
 Nothing in the project needs updating: the hooks run the globally installed package, so `npm update -g codemyrules` updates every project at once.
 Versions before 0.5 copied the scripts into `.claude/codemyrules/`; installing again removes those copies and their hook entries and keeps `loop.json`, the failure log and the baseline.
-`install.mjs <project-dir> --apply` without `--config` reinstalls with the project's own `loop.json`.
+`codemyrules install <project-dir> --apply` without `--config` reinstalls with the project's own `loop.json`.
 
 ## The failure log
 
-`measure.mjs report` counts the log per rule and per event.
+`measure.mjs report` counts the log per rule and per event, and ends with advice drawn from it: a rule that keeps failing gets a pointer suggestion for the folder it fails in, a rule caught mostly at the end of the turn a suggestion to lint it in the fast tier, a rule that never failed the note that its doc line can likely go, and growth of the always-loaded docs is named.
 Only errors block, so a rule left at `warning` is invisible to the loop.
 Every built rule is therefore an `error`: with no open hits in the main config, with open hits in the suggestions layer, which the loop runs instead of the main config.
 The loop only checks lines the agent changes, so the old hits never block, and CI keeps running the main config.
@@ -111,11 +116,13 @@ A rule that never fails after its doc lines were removed has paid off.
 
 ## Uninstall
 
-1. Delete `.claude/codemyrules/`.
-2. Remove every entry whose command ends in `cli.mjs" hook <name>` from `.claude/settings.local.json`: two under `PreToolUse`, two under `PostToolUse`, one under `PostToolUseFailure`, one under `Stop`.
-3. When no other project uses it: `npm uninstall -g codemyrules`.
-
+`codemyrules uninstall <project-dir>` shows what it removes, and with `--apply` removes it: `.claude/codemyrules/` (with the failure log and the baseline) and codemyrules' own entries in `.claude/settings.local.json`, keeping every other hook.
+When no other project uses it, `npm uninstall -g codemyrules` removes the package.
 The two lines in `.git/info/exclude` are harmless and can stay or go.
+
+## Status
+
+`codemyrules status <project-dir>` shows what is installed: the package version, whether every hook entry runs a CLI that exists, copies left from before the npm package, the linters, the protected paths and the failures of the last 7 days per rule.
 
 ## Sharing with the team
 

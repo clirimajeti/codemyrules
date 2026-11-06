@@ -8,6 +8,8 @@ import { readHookInput } from './core/lib.mjs';
 const HOOKS = { guard: './guard.mjs', shell: './shell-guard.mjs', edited: './lint-edited.mjs', turn: './lint-turn.mjs' };
 const USAGE = `usage: codemyrules hook <${Object.keys(HOOKS).join('|')}>   run one hook, its input on stdin
        codemyrules install <project-dir> [--config <loop.json>] [--apply]
+       codemyrules uninstall <project-dir> [--apply]
+       codemyrules status <project-dir>
        codemyrules measure baseline|report <project-dir>
        codemyrules --version`;
 
@@ -18,6 +20,8 @@ if (cmd === '--version') {
   process.exitCode = await (await import(HOOKS[args[0]])).main(await readHookInput());
 } else if (cmd === 'install') {
   process.exitCode = (await import('./install.mjs')).main(args);
+} else if (cmd === 'uninstall' || cmd === 'status') {
+  process.exitCode = (await import('./install.mjs'))[cmd](args);
 } else if (cmd === 'measure') {
   process.exitCode = (await import('./measure.mjs')).main(args);
 } else {
