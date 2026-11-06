@@ -1,0 +1,2 @@
+# LF everywhere: a CRLF shebang breaks the npm bin, and the hooks parse git and linter output line by line
+* text=auto eol=lf

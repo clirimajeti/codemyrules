@@ -84,7 +84,7 @@ test('non-repo dir exits 1', (t) => {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const r = run(dir, path.join(dir, 'x.json'));
   assert.equal(r.status, 1);
-  assert.match(r.stderr, new RegExp(`codemyrules: ${dir.replace(/[/.]/g, '\\$&')} is not a git repository`));
+  assert.ok(r.stderr.includes(`codemyrules: ${dir} is not a git repository`), r.stderr);
 });
 
 const goodLinter = { name: 'eslint', format: 'eslint', command: ['node', 'node_modules/eslint/bin/eslint.js', '--format', 'json', '{files}'], extensions: ['.ts'], tier: 'full' };

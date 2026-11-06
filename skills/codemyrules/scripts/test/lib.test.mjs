@@ -194,7 +194,8 @@ test('readLoopConfig normalises wrong shapes and still throws on invalid JSON', 
   });
 });
 
-test('logFindings swallows write failures with a note', { skip: process.getuid?.() === 0 }, () => {
+// a read-only folder needs POSIX permissions: root ignores them, and Windows has no chmod
+test('logFindings swallows write failures with a note', { skip: process.getuid?.() === 0 || process.platform === 'win32' }, () => {
   withTmp((dir) => {
     fs.chmodSync(dir, 0o555);
     try {
@@ -334,7 +335,8 @@ test('parseHunks reads quoted file names', () => {
   assert.deepEqual([...parseHunks(diff)], [['we"ird.ts', [[1, 1]]]]);
 });
 
-test('changedLines handles names git has to quote, tracked and untracked', () => {
+// Windows allows neither " nor \\ in a file name, so git never has to quote one there
+test('changedLines handles names git has to quote, tracked and untracked', { skip: process.platform === 'win32' }, () => {
   withTmp((dir) => {
     git(dir, 'init', '-q');
     fs.writeFileSync(path.join(dir, 'we"ird.ts'), '1\n2\n');
@@ -360,8 +362,9 @@ test('dirtyFiles lists changed, deleted and untracked files, never secret files'
     assert.deepEqual([...dirtyFiles(dir)], []);
     fs.writeFileSync(path.join(dir, 'a.ts'), '2\n');
     fs.rmSync(path.join(dir, 'b.ts'));
-    fs.writeFileSync(path.join(dir, 'we"ird.ts'), 'x\n');
+    const odd = process.platform === 'win32' ? 'odd name.ts' : 'we"ird.ts'; // Windows forbids " in names
+    fs.writeFileSync(path.join(dir, odd), 'x\n');
     fs.writeFileSync(path.join(dir, '.env'), 'X=1\n');
-    assert.deepEqual([...dirtyFiles(dir)].sort(), ['a.ts', 'b.ts', 'we"ird.ts']);
+    assert.deepEqual([...dirtyFiles(dir)].sort(), ['a.ts', 'b.ts', odd].sort());
   });
 });
