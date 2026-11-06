@@ -1,7 +1,7 @@
 {
   "name": "codemyrules",
-  "version": "0.2.2",
-  "description": "Turn a project's decisions, patterns and agent-doc instructions into lint rules across its whole stack, slim the agent docs they cover, and add a private, silent lint feedback loop for Claude Code. Drives eslint-pattern-rules and backend-pattern-rules, asks before it writes.",
+  "version": "0.3.0",
+  "description": "Turn a project's decisions, patterns and agent-doc instructions into lint rules across its whole stack, slim the agent docs they cover, and add a private, silent lint feedback loop for Claude Code. Drives eslint-pattern-rules and backend-pattern-rules, asks automatic or manual first.",
   "author": {
     "name": "clirimajeti",
     "url": "https://github.com/clirimajeti"
