@@ -18,7 +18,19 @@ Otherwise ask the user for the path to its `SKILL.md`, read it, and follow it fr
 Both have the same steps (1 detect, 2 pick, 3 design, 4 write, 5 verify, 6 agent-doc cleanup, 7 report), the same coverage labels and the same report shape.
 
 Nothing is written to the project without the user's approval: no rule, config change, doc edit, hook or baseline.
-Each sub-skill's auto mode stays as its own `config.json` and project override file set it, off by default.
+The mode question below is that approval for everything automatic mode builds.
+The sub-skills ask the same mode question; hand them the answer from step 0 so it is asked once.
+
+## 0. Mode
+
+Before anything else, ask one single-select `AskUserQuestion` (header `Mode`):
+- **Automatic (Recommended)**: build every recommended candidate (step 3), install the feedback loop and write the baseline without asking.
+  Ask only at the critical points: a change to an agent doc or decision record, a contradiction between doc and code, and a `high` risk candidate.
+- **Manual**: pick the rules yourself from one selection with the recommended ones marked, and approve each later step.
+
+When the user already said which mode in the request, skip the question.
+When the user said to go ahead with your recommendations, that is automatic.
+With nobody to answer and no such word, use manual and build nothing that needs a pick.
 
 ## 1. Detect the stacks
 
@@ -42,7 +54,7 @@ Done when every source root has its sub-skill, or the user knows which one has n
 ## 2. Discover
 
 Run each matched sub-skill's step 1 and its discovery (its step 2, through `references/discovery.md`) up to and including the labelling, unchanged except that the shared context from step 1 here is reused, not detected again.
-Stop before its selection dialog: step 3 here asks once for both.
+Stop before its selection dialog: step 3 here selects once for both.
 When the user named one convention, run only the sub-skill that owns its stack, and its step 2 as written.
 
 Keep from each sub-skill, for steps 3 to 6:
@@ -55,28 +67,41 @@ Done when each sub-skill has labelled its candidates.
 
 ## 3. One selection
 
-Merge the candidates into one `AskUserQuestion` dialog, following the sub-skills' selection rules (`references/discovery.md` step 5 in each):
-- **Automatic**: only what a sub-skill's own auto mode allows, named to the user in one line each.
-- **Offered**: frontend and backend candidates in separate questions, never mixed in one, each question naming its side ("Which of these frontend rules should I generate?").
-  Use the sub-skills' labels and order: coverage (`documented, not enforced` and `built, not enabled` first), then always-loaded agent-doc lines before on-demand ones, then risk, then fewest flagged files.
-  Keep that order across both stacks when merging: an agent-doc rule the agent does not load today (a linked file, a folder doc outside where it works) is where a rule changes the most, and an always-loaded line is where deleting prose saves context in every session.
-  Up to 4 options per question and 4 questions per call, at most 16 candidates in one call; list the rest in the report.
-- **Contradictions**: one single-select question each, as the sub-skills ask them.
-- **General**: `general, not used` candidates in a separate call, frontend and backend in separate questions, never built automatically.
-- `covered` candidates appear only as notes.
+Merge every candidate from both sub-skills into one list: project candidates, `built, not enabled`, `switched off` and general ones together, never split by family (no separate call for general, bug-prevention or style rules).
+Order it by the sub-skills' rules: coverage (`documented, not enforced` and `built, not enabled` first), then always-loaded agent-doc lines before on-demand ones, then risk, then fewest flagged files; general and `switched off` candidates after the project ones.
+An agent-doc rule the agent does not load today (a linked file, a folder doc outside where it works) is where a rule changes the most, and an always-loaded line is where deleting prose saves context in every session.
 
-Without the tool, list the candidates in chat, frontend and backend apart, and ask for names.
-Build nothing until the user answers.
+**Recommended** is every candidate whose risk is below `high`, except `switched off` ones (someone decided against them) and general ones with no hits and no tool the project already runs for them.
+`covered` candidates appear only as notes, and `contradicted` ones only as their question.
 
-Done when every candidate is picked, not picked, automatic, or a note.
+**Automatic mode:**
+- Build every recommended candidate without asking, and name each in one line with its reason ("low risk, 1 file").
+- Ask in one `AskUserQuestion` call, and only when there is something to ask: each contradiction as a single-select ("update the doc to match the code" or "enforce the doc"), and the `high` risk candidates as one multi-select ("These rules are high risk, which should I build?").
+- Everything not recommended and not asked goes to the report as not built.
+
+**Manual mode:**
+- One `AskUserQuestion` call with every candidate, `multiSelect: true`, up to 4 options per question and 4 questions per call.
+  Fill the questions in list order, frontend and backend in separate questions, each naming its side ("Which of these frontend rules should I build?").
+  Put `(Recommended)` at the end of each recommended option's label.
+  Each option's description is the why-sentence plus the flagged files and the risk; a general rule also names its standard value.
+- Contradictions are single-select questions in the same call, ahead of the rest.
+- Past 16 options in one call, offer the recommended ones first and list the rest in the report.
+
+Without the tool, list the candidates in chat, recommended ones marked, and ask for names.
+In manual mode, build nothing until the user answers.
+
+Done when every candidate is built, picked, not picked, asked, or a note.
 
 ## 4. Build
 
 Hand each picked candidate to the sub-skill that owns its stack and follow that sub-skill's steps 3 to 6 for it: design, write, verify, agent-doc cleanup.
 A `built, not enabled` or general candidate is a config change, as the sub-skill describes.
+In automatic mode, answer the sub-skill's design questions with its recommended default, unless the answer changes a doc, and list each answer for step 7.
 Note each rule's open hits on the real code from its verify step, and its layer (main config or suggestions layer), for steps 5 and 6.
 A rule the existing code breaks goes into the sub-skill's suggestions layer at `error`, never into the main config at `warning`: at `warning` the loop would never show it, and these are the rules agents break by copying nearby code.
 
+The agent-doc cleanup always asks, in both modes: it changes a doc.
+In automatic mode, ask all doc edits from every picked candidate in one `AskUserQuestion` call after the builds, not one call per rule.
 In the agent-doc cleanup, when the user keeps a one-line pointer, propose where it goes in the same question: a `CLAUDE.md` in the folder the rule applies to, or an instructions file with an `applyTo` glob such as `.github/instructions/domain.instructions.md`, rather than the root doc.
 Then the pointer loads only when the agent works in that folder.
 Offer the root doc as the other option when the rule applies to the whole repo.
@@ -125,7 +150,8 @@ Run the installer as a dry run and show its plan:
 node <skill-dir>/scripts/install.mjs <project-dir> --config <tmp>/loop.json
 ```
 
-Ask one `AskUserQuestion`: install the loop as planned, or skip it.
+In automatic mode, run the same command with `--apply` and put the plan in the report.
+In manual mode, ask one `AskUserQuestion`: install the loop as planned, or skip it.
 Show the hook config, the files it creates and the `.git/info/exclude` lines in the question or its `preview`.
 On a yes, run the same command with `--apply`.
 With nobody to answer, do not install, and put the plan in the report.

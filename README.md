@@ -112,29 +112,19 @@ The method, the harness to rerun it on your own repo, and related work are in [a
 
 ## How It Works
 
-```mermaid
-flowchart TD
-  A["Your agent docs, decisions<br/>and existing code patterns"] --> B["1-2. Find the rules"]
-  B --> C{"Does the code<br/>follow the docs?"}
-  C -- "no" --> D["You choose: fix the doc<br/>or enforce it"]
-  C -- "yes" --> E
-  D --> E["3. You pick the rules"]
-  E --> F["4. Write each rule with tests, in the tools<br/>you already use (ESLint, detekt, ArchUnit, ...)"]
-  F --> F2["Slim the agent docs"]
-  F2 --> G["5. Feedback loop: the agent sees<br/>a broken rule while it codes"]
-  G --> H["6-7. Baseline and report"]
-```
+The [flowchart](#flowchart) at the end shows the same steps.
 
 1. **Detects your stacks** and maps each source root to its sub-skill.
 2. **Discovers candidates** through each sub-skill: your code's majority patterns, your decision records, the rules written as prose in your agent docs, and well-known rules your linters have but you don't use yet.
    A doc line the code no longer follows is raised as a question: update the doc to match the code, or enforce the doc.
-3. **Lets you pick** from one selection, frontend and backend in separate questions.
-   Nothing is built until you pick it.
+3. **Selects the rules** after one first question: automatic or manual.
+   Automatic builds every recommended rule and asks only for doc changes, doc-vs-code contradictions and high-risk rules.
+   Manual shows every candidate in one selection, recommended ones marked, and builds only what you pick.
 4. **Builds each pick** through the sub-skill that owns its stack: design questions, the rule and its tests, verification on your real code.
    It first checks which tools the project already uses, and writes the rule there, in their style: ESLint, detekt, Ruff, or an existing ArchUnit or Konsist test class; ast-grep only when none of them fits.
    Then, for each line in your agent docs the new rule enforces, you choose to delete it, shorten it to a pointer, or keep it.
    A pointer you keep can move to a `CLAUDE.md` in the folder it applies to, so it loads only when the agent works there.
-5. **Offers the feedback loop** as one approved step, after showing exactly what it installs.
+5. **Sets up the feedback loop**: automatic mode installs it, manual mode asks first after showing exactly what it installs.
 6. **Records a baseline**: agent-doc tokens, rules and open hits, so a later run can show what changed.
 7. **Reports** the rules, doc lines removed, the loop and the baseline, and on a re-run the before and after.
 
@@ -187,7 +177,7 @@ If your harness has hooks or a plugin API and you want it supported, open an iss
 
 ## What It Leaves Alone
 
-- **Anything you have not approved**: no rule, config change, doc edit, hook or baseline is written without your yes.
+- **Anything you have not approved**: no rule, config change, doc edit, hook or baseline is written without your yes; choosing automatic mode is that yes for the recommended rules, the loop and the baseline, never for a doc edit.
 - **Build files and lockfiles**, as in both sub-skills.
 - **Your agent docs**, except the lines you approve deleting, shortening or moving.
 
@@ -213,6 +203,21 @@ Run the tests:
 
 ```bash
 node --test skills/codemyrules/scripts/test/*.test.mjs
+```
+
+## Flowchart
+
+```mermaid
+flowchart TD
+  A["Your agent docs, decisions<br/>and existing code patterns"] --> B["1-2. Find the rules"]
+  B --> C{"Does the code<br/>follow the docs?"}
+  C -- "no" --> D["You choose: fix the doc<br/>or enforce it"]
+  C -- "yes" --> E
+  D --> E["3. Automatic or you pick"]
+  E --> F["4. Write each rule with tests, in the tools<br/>you already use (ESLint, detekt, ArchUnit, ...)"]
+  F --> F2["Slim the agent docs"]
+  F2 --> G["5. Feedback loop: the agent sees<br/>a broken rule while it codes"]
+  G --> H["6-7. Baseline and report"]
 ```
 
 ## Related
