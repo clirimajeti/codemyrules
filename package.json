@@ -1,6 +1,6 @@
 {
   "name": "codemyrules",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Lint feedback loop for coding agents: the hooks behind the codemyrules skill, which turns the rules in CLAUDE.md / AGENTS.md into lint rules.",
   "type": "module",
   "bin": {
