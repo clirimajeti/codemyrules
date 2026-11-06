@@ -26,8 +26,22 @@ function setupFiles(cwd) {
   return [SETTINGS_FILE, ...new Set([`${CONFIG_DIR}/loop.json`, ...found.map((f) => `${CONFIG_DIR}/${f}`)])];
 }
 
+// A snapshot whose tool never finished (the user denied it, the session crashed) and a turn that never
+// reached its end-of-turn check leave their file behind; a day old is long past any real tool call or turn.
+const STALE_MS = 24 * 3600 * 1000;
+function sweep(cwd) {
+  const dir = path.join(cwd, CONFIG_DIR);
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names.filter((f) => /^(?:shell-.*\.json|turn-.*\.txt)$/.test(f))) {
+    const p = path.join(dir, n);
+    try { if (Date.now() - fs.statSync(p).mtimeMs > STALE_MS) fs.rmSync(p, { force: true }); } catch { /* gone already */ }
+  }
+}
+
 // before the tool runs; returns notes (empty when fine)
 export function takeSnapshot(cwd, id) {
+  sweep(cwd);
   try {
     const dirty = dirtyFiles(cwd);
     if (!dirty) return [];

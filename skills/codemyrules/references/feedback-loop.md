@@ -18,7 +18,7 @@ Gradle detekt and Error Prone need a JVM build and never run in a hook.
 
 The fast check records each file it sees in `.claude/codemyrules/turn-<session>.txt`, and the end-of-turn check lints only those files, so uncommitted work from before the turn never blocks.
 The end-of-turn check deletes that list when it lets the turn end.
-Files changed through `Bash` (a formatter, `sed`, a code generator) are not recorded and not checked in the turn; CI catches those.
+Files changed through `Bash` or `NotebookEdit` (a formatter, `sed`, a code generator) are recorded by the shell guard below, so the end-of-turn check lints them too.
 Credential files (`.env*`, `.envrc`, SSH keys, `*.pem` / `*.key`, `.aws/`, `.kube/`, `.netrc`, `.npmrc`, `*.tfvars`, the full list is `secret-patterns.json`) are never read, diffed or passed to a linter by any check.
 
 ## What blocks
@@ -66,12 +66,13 @@ With nobody to approve, the edit does not happen.
 
 ### Changes through the shell
 
-A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `shell-guard.mjs`, runs before and after each `Bash` and `NotebookEdit` call.
+A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `shell-guard.mjs`, runs before and after each `Bash` and `NotebookEdit` call, also after one that fails (`PostToolUseFailure`): a failed command can still have changed files.
 Before, it stores the content of every file that differs from `HEAD`, plus the codemyrules setup, in git's object store; after, it finds every file the call changed and checks it like an edit, including the protected paths.
 The change has already happened, so it cannot ask first: it blocks with a `PostToolUse` decision that tells the agent to undo the change or ask the user, and shows the user the same list.
 The files it changed are also recorded for the end-of-turn check.
 It costs about two git calls per hook; credential files are never read.
 When two commands run in parallel, each one may also report the other's changes.
+A snapshot whose command never ran (the user denied it) and a turn list whose turn never ended are deleted once they are a day old.
 CI, running the project's own lint setup, stays the safety net.
 
 ## Files
@@ -80,15 +81,21 @@ Everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
-| `.claude/codemyrules/guard.mjs`, `shell-guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs` | the Claude Code hooks, copied by `install.mjs` |
-| `.claude/codemyrules/core/` | their shared, harness-neutral code and `secret-patterns.json`, the credential files they never touch |
+| the `codemyrules` npm package, installed globally | the hooks (`codemyrules hook guard\|shell\|edited\|turn`), their shared code and `secret-patterns.json`, the credential files they never touch |
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
-| `.claude/settings.local.json` | the five hook entries |
+| `.claude/settings.local.json` | the six hook entries |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
-It merges its three entries into an existing `settings.local.json` without removing or duplicating anything, so running it again is safe.
+It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
+Each entry runs `node "<global package>/skills/codemyrules/scripts/cli.mjs" hook <name>`; the installer finds the package through the `codemyrules` command on `PATH` and refuses to install without it.
+
+## Updates
+
+Nothing in the project needs updating: the hooks run the globally installed package, so `npm update -g codemyrules` updates every project at once.
+Versions before 0.5 copied the scripts into `.claude/codemyrules/`; installing again removes those copies and their hook entries and keeps `loop.json`, the failure log and the baseline.
+`install.mjs <project-dir> --apply` without `--config` reinstalls with the project's own `loop.json`.
 
 ## The failure log
 
@@ -105,7 +112,8 @@ A rule that never fails after its doc lines were removed has paid off.
 ## Uninstall
 
 1. Delete `.claude/codemyrules/`.
-2. Remove the three entries whose command runs `.claude/codemyrules/` (`PreToolUse`, `PostToolUse`, `Stop`) from `.claude/settings.local.json`.
+2. Remove every entry whose command ends in `cli.mjs" hook <name>` from `.claude/settings.local.json`: two under `PreToolUse`, two under `PostToolUse`, one under `PostToolUseFailure`, one under `Stop`.
+3. When no other project uses it: `npm uninstall -g codemyrules`.
 
 The two lines in `.git/info/exclude` are harmless and can stay or go.
 

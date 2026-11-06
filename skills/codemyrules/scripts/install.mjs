@@ -2,38 +2,58 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { CONFIG_DIR, SETTINGS_FILE, isMain } from './core/lib.mjs';
 
-// the harness-neutral core, then the Claude Code adapters that the hook entries run
-const SCRIPTS = [
-  'core/lib.mjs', 'core/secret-patterns.json', 'core/checks.mjs', 'core/loop.mjs', 'core/snapshot.mjs',
-  'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs',
-];
-// files earlier versions installed that nothing uses any more
-const OBSOLETE = ['lib.mjs', 'secret-patterns.json'];
-const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
+// what versions before the npm package copied into the project; an install over them removes them
+const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
 const EXCLUDES = [`${CONFIG_DIR}/`, SETTINGS_FILE];
+// where the CLI sits inside the npm package
+const CLI_IN_PACKAGE = 'codemyrules/skills/codemyrules/scripts/cli.mjs';
 
-const entry = (matcher, script, timeout) => ({
+// The hooks run the CLI of the globally installed npm package, so `npm update -g codemyrules` updates every project.
+// Not the CLI next to this installer: run through npx or from a plugin cache, that path is temporary or versioned.
+// Found through the `codemyrules` command on PATH, not `npm root -g`: npm masks token-like path parts as *** in its output.
+export function findCli(env = process.env) {
+  for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    if (process.platform === 'win32') {
+      // npm puts codemyrules.cmd in the prefix, next to node_modules
+      const cli = path.join(dir, 'node_modules', CLI_IN_PACKAGE);
+      if (fs.existsSync(path.join(dir, 'codemyrules.cmd')) && fs.existsSync(cli)) return cli;
+      continue;
+    }
+    // a symlink to cli.mjs, from `npm install -g` or `npm link`
+    try {
+      const cli = fs.realpathSync(path.join(dir, 'codemyrules'));
+      if (path.basename(cli) === 'cli.mjs') return cli;
+    } catch { /* not in this directory */ }
+  }
+  return null;
+}
+
+const entry = (matcher, cli, hook, timeout) => ({
   ...(matcher && { matcher }),
-  hooks: [{ type: 'command', command: `node "$CLAUDE_PROJECT_DIR/${CONFIG_DIR}/${script}"`, timeout }],
+  hooks: [{ type: 'command', command: `node "${cli}" hook ${hook}`, timeout }],
 });
 
-export const HOOKS = {
-  PreToolUse: [entry('Edit|Write|MultiEdit', 'guard.mjs', 10), entry('Bash|NotebookEdit', 'shell-guard.mjs', 10)],
-  PostToolUse: [entry('Edit|Write|MultiEdit', 'lint-edited.mjs', 30), entry('Bash|NotebookEdit', 'shell-guard.mjs', 30)],
-  Stop: [entry(undefined, 'lint-turn.mjs', 120)],
-};
+export const hookEntries = (cli) => ({
+  PreToolUse: [entry('Edit|Write|MultiEdit', cli, 'guard', 10), entry('Bash|NotebookEdit', cli, 'shell', 10)],
+  PostToolUse: [entry('Edit|Write|MultiEdit', cli, 'edited', 30), entry('Bash|NotebookEdit', cli, 'shell', 30)],
+  PostToolUseFailure: [entry('Bash|NotebookEdit', cli, 'shell', 30)],
+  Stop: [entry(undefined, cli, 'turn', 120)],
+});
 
-export function mergeSettings(existing, hooks = HOOKS) {
+// a hook command codemyrules wrote: a copied script (before the npm package) or the CLI, wherever it was installed
+const ours = (command) => typeof command === 'string'
+  && (command.includes(`/${CONFIG_DIR}/`) || /cli\.mjs" hook (?:guard|shell|edited|turn)$/.test(command));
+
+// drop every hook codemyrules wrote before, then add these; everything else in the settings stays as it was
+export function mergeSettings(existing, hooks) {
   const out = { ...existing, hooks: { ...existing.hooks } };
-  for (const [event, entries] of Object.entries(hooks)) {
-    const list = [...(out.hooks[event] ?? [])];
-    const have = new Set(list.flatMap((e) => (e.hooks ?? []).map((h) => h.command)));
-    for (const e of entries) if (!e.hooks.some((h) => have.has(h.command))) list.push(e);
-    out.hooks[event] = list;
+  for (const [event, list] of Object.entries(out.hooks)) {
+    if (!Array.isArray(list)) continue;
+    out.hooks[event] = list.map((e) => ({ ...e, hooks: (e.hooks ?? []).filter((h) => !ours(h.command)) })).filter((e) => e.hooks.length);
   }
+  for (const [event, entries] of Object.entries(hooks)) out.hooks[event] = [...(out.hooks[event] ?? []), ...entries];
   return out;
 }
 
@@ -47,19 +67,18 @@ function excludePath(projectDir) {
   return path.resolve(projectDir, p);
 }
 
-export function plan(projectDir, loopConfig) {
+export function plan(projectDir, loopConfig, cli) {
   const items = [];
   const add = (p, content, preview = content) => {
     const old = readIf(p);
     if (old !== content) items.push({ path: p, action: old === null ? 'create' : 'update', preview, content });
   };
   const dest = path.join(projectDir, CONFIG_DIR);
-  for (const s of SCRIPTS) add(path.join(dest, s), fs.readFileSync(path.join(SELF_DIR, s), 'utf8'), `copy of ${s}`);
-  for (const s of OBSOLETE) if (fs.existsSync(path.join(dest, s))) items.push({ path: path.join(dest, s), action: 'delete', preview: 'no longer used', content: null });
+  for (const s of COPIED) if (fs.existsSync(path.join(dest, s))) items.push({ path: path.join(dest, s), action: 'delete', preview: 'a copy from before the npm package', content: null });
   add(path.join(dest, 'loop.json'), JSON.stringify(loopConfig, null, 2) + '\n');
 
   const sp = path.join(projectDir, SETTINGS_FILE);
-  const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'));
+  const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(cli));
   add(sp, JSON.stringify(settings, null, 2) + '\n');
 
   const ep = excludePath(projectDir);
@@ -127,17 +146,20 @@ export function validateLoopConfig(cfg, projectDir) {
   return errs;
 }
 
-function main(argv) {
-  const args = argv.slice(2);
+// args: the command-line arguments after the script name; returns the exit code
+export function main(args) {
   const apply = args.includes('--apply');
   const ci = args.indexOf('--config');
-  const cfgPath = ci >= 0 ? args[ci + 1] : undefined;
-  const dir = args.find((a, i) => !a.startsWith('--') && i !== ci + 1);
-  if (!dir || !cfgPath) {
-    console.error('usage: install.mjs <project-dir> --config <loop.json> [--apply]');
+  const values = new Set(['--config', '--cli'].map((f) => args.indexOf(f)).filter((i) => i >= 0).map((i) => i + 1));
+  const dir = args.find((a, i) => !a.startsWith('--') && !values.has(i));
+  const projectDir = dir && path.resolve(dir);
+  // without --config, a reinstall with the project's installed loop.json
+  const installed = projectDir && path.join(projectDir, CONFIG_DIR, 'loop.json');
+  const cfgPath = ci >= 0 ? args[ci + 1] : installed && fs.existsSync(installed) ? installed : undefined;
+  if (!projectDir || !cfgPath) {
+    console.error('usage: install.mjs <project-dir> --config <loop.json> [--cli <cli.mjs>] [--apply]\n       install.mjs <project-dir> [--apply]   (reinstall, keeping the installed loop.json)');
     return 2;
   }
-  const projectDir = path.resolve(dir);
   if (!fs.existsSync(path.join(projectDir, '.git'))) {
     console.error(`codemyrules: ${projectDir} is not a git repository`);
     return 1;
@@ -154,7 +176,13 @@ function main(argv) {
     console.error(`codemyrules: invalid loop config ${cfgPath}, nothing written:\n${errs.map((e) => `  - ${e}`).join('\n')}`);
     return 1;
   }
-  const items = plan(projectDir, cfg);
+  const li = args.indexOf('--cli');
+  const cli = li >= 0 ? path.resolve(args[li + 1]) : findCli();
+  if (!cli) {
+    console.error('codemyrules: the hooks run the codemyrules npm package, which is not installed globally. Install it with: npm install -g codemyrules');
+    return 1;
+  }
+  const items = plan(projectDir, cfg, cli);
   for (const i of items) console.log(`${i.action} ${i.path}\n${i.preview.replace(/^/gm, '  ')}`);
   if (!items.length) console.log('nothing to change');
   if (!apply) {
@@ -162,11 +190,11 @@ function main(argv) {
     return 0;
   }
   for (const i of items) {
-    if (i.action === 'delete') { fs.rmSync(i.path, { force: true }); continue; }
+    if (i.action === 'delete') { fs.rmSync(i.path, { recursive: true, force: true }); continue; }
     fs.mkdirSync(path.dirname(i.path), { recursive: true });
     fs.writeFileSync(i.path, i.content);
   }
   return 0;
 }
 
-if (isMain(import.meta.url)) process.exitCode = main(process.argv);
+if (isMain(import.meta.url)) process.exitCode = main(process.argv.slice(2));

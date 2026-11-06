@@ -101,10 +101,14 @@ function report(dir) {
   console.log(`failures logged: ${stats.total} (edit: ${stats.byEvent.edit}, turn: ${stats.byEvent.turn})`);
 }
 
-if (isMain(import.meta.url)) {
-  const [cmd, dir, ...rest] = process.argv.slice(2);
+// args: the command-line arguments after the script name; returns the exit code
+export function main(args) {
+  const [cmd, dir, ...rest] = args;
   const i = rest.indexOf('--rules');
   if (cmd === 'baseline' && dir) baseline(dir, i >= 0 ? rest[i + 1] : undefined);
   else if (cmd === 'report' && dir) report(dir);
-  else { console.error('usage: measure.mjs baseline <project-dir> [--rules <json>] | report <project-dir>'); process.exit(2); }
+  else { console.error('usage: measure.mjs baseline <project-dir> [--rules <json>] | report <project-dir>'); return 2; }
+  return 0;
 }
+
+if (isMain(import.meta.url)) process.exitCode = main(process.argv.slice(2));

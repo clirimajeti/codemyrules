@@ -157,11 +157,13 @@ Three tiers, each silent when clean:
   A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
   A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
-  The hooks go into `.claude/settings.local.json`, the scripts into `.claude/codemyrules/`, and both into `.git/info/exclude`.
+  The hooks go into `.claude/settings.local.json`, the config into `.claude/codemyrules/`, and both into `.git/info/exclude`.
   No tracked file changes.
+- **One copy, kept current.**
+  The hooks run the [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package, installed globally, so `npm update -g codemyrules` updates every project at once.
   Sharing it with your team is a later, separate step.
 
-To uninstall, delete `.claude/codemyrules/` and the five codemyrules entries in `.claude/settings.local.json`.
+To uninstall, delete `.claude/codemyrules/` and the six codemyrules entries in `.claude/settings.local.json`, and `npm uninstall -g codemyrules` once no project uses it.
 [`references/feedback-loop.md`](skills/codemyrules/references/feedback-loop.md) has the details.
 
 ## Harness Support
@@ -190,7 +192,8 @@ skills/codemyrules/
 ├── references/
 │   └── feedback-loop.md        # tiers, what blocks, the guard, the log, uninstall
 └── scripts/
-    ├── install.mjs             # installs the loop into a project (dry run by default)
+    ├── cli.mjs                 # the `codemyrules` command of the npm package: hooks, install, measure
+    ├── install.mjs             # installs the loop in a project (dry run by default)
     ├── measure.mjs             # baseline and before/after report
     ├── core/                   # harness-neutral: checks, snapshot, lint loop, git and linter helpers
     ├── guard.mjs               # Claude Code adapter: PreToolUse hook on edits
@@ -199,6 +202,10 @@ skills/codemyrules/
     ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
     └── test/                   # node:test suites
 ```
+
+Run the tests with `npm test`.
+To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project uses it.
+A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match) and runs `npm publish`.
 
 Run the tests:
 

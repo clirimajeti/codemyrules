@@ -128,3 +128,32 @@ test('secret files are never snapshotted or read', (t) => {
   assert.equal(around(dir, () => write(dir, '.env', 'A=1 # noqa\n')), null);
   assert.equal(turn(dir), '');
 });
+
+test('a failed command is checked too, through PostToolUseFailure', (t) => {
+  const dir = repo(t);
+  assert.equal(hook(dir, 'PreToolUse').status, 0);
+  write(dir, 'src/a.ts', 'x(); // eslint-disable-line\n');
+  const r = hook(dir, 'PostToolUseFailure');
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'PostToolUseFailure');
+  assert.match(out.hookSpecificOutput.additionalContext, /lint suppression in src\/a\.ts/);
+  assert.match(out.systemMessage, /src\/a\.ts/);
+  assert.equal(turn(dir), 'src/a.ts\n');
+});
+
+test('snapshots and turn files left over for a day are swept, fresh ones stay', (t) => {
+  const dir = repo(t);
+  const state = path.join(dir, '.claude/codemyrules');
+  const old = new Date(Date.now() - 25 * 3600 * 1000);
+  for (const f of ['shell-denied.json', 'turn-crashed.txt']) {
+    fs.writeFileSync(path.join(state, f), '{}');
+    fs.utimesSync(path.join(state, f), old, old);
+  }
+  fs.writeFileSync(path.join(state, 'shell-running.json'), '{}');
+  fs.writeFileSync(path.join(state, 'turn-live.txt'), 'src/a.ts\n');
+  assert.equal(hook(dir, 'PreToolUse').status, 0);
+  const left = fs.readdirSync(state);
+  assert.ok(!left.includes('shell-denied.json') && !left.includes('turn-crashed.txt'), left.join());
+  assert.ok(left.includes('shell-running.json') && left.includes('turn-live.txt'), left.join());
+});

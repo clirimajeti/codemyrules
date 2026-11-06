@@ -19,8 +19,8 @@ export function decide(input, cwd) {
   return reason ? { reason } : null;
 }
 
-if (isMain(import.meta.url)) {
-  const input = await readHookInput();
+// one hook call; returns the exit code
+export async function main(input) {
   const cwd = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
   const d = decide(input, cwd);
   if (d) {
@@ -29,4 +29,7 @@ if (isMain(import.meta.url)) {
       permissionDecisionReason: `codemyrules: ${d.reason} Only the user can approve this.`,
     } }));
   }
+  return 0;
 }
+
+if (isMain(import.meta.url)) process.exitCode = await main(await readHookInput());

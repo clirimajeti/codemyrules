@@ -148,6 +148,8 @@ Draft the config in a temporary file outside the project, as `loop.json`:
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
 
 The installer validates the config (formats, tiers, `command` as a list with `"{files}"`, every `-c` or `--config` path existing, the command's tool installed (on `PATH`, or a path in the project), `protect` as a list) and refuses a broken one with a message per field, before it writes anything.
+The hooks run the `codemyrules` npm package, installed globally, so one `npm update -g codemyrules` updates every project; nothing is copied into the project.
+Check it with `codemyrules --version`: when it is missing or older than this skill's `version`, the plan starts with `npm install -g codemyrules@<this skill's version>`, approved together with the loop, and run before the installer.
 Run the installer as a dry run and show its plan:
 
 ```bash
