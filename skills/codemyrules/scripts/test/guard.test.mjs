@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { decide, suppressionLines } from '../guard.mjs';
+import { decide } from '../guard.mjs';
+import { suppressionLines } from '../core/checks.mjs';
 
 const GUARD = path.join(import.meta.dirname, '..', 'guard.mjs');
 
@@ -214,4 +215,16 @@ test('lint settings inside package.json and pyproject.toml ask, other edits ther
     assert.ok(decide(edit(dir, 'setup.cfg', 'name = x', 'name = x\n\n[flake8]\nignore = E501'), dir));
     assert.equal(decide({ tool_name: 'Write', tool_input: { file_path: path.join(dir, 'pkg/package.json'), content: '{"name":"n"}' } }, dir), null);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the script still runs when started through a symlinked path', () => {
+  const dir = project();
+  const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
+  try {
+    const link = path.join(holder, 'scripts');
+    fs.symlinkSync(path.dirname(GUARD), link);
+    const r = spawnSync('node', [path.join(link, 'guard.mjs')], { input: JSON.stringify(edit(dir, 'src/a.ts', 'x', '// eslint-disable-line')), env: { ...process.env, CLAUDE_PROJECT_DIR: dir }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'ask');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(holder, { recursive: true, force: true }); }
 });

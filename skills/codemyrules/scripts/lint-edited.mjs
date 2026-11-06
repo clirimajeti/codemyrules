@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+// Claude Code adapter, PostToolUse on Edit|Write|MultiEdit: exit 2 hands errors on the changed lines back to Claude.
 import fs from 'node:fs';
-import path from 'node:path';
-import { changedLines, formatFindings, logFindings, onChangedLines, readHookInput, readLoopConfig, realPath, runLinters, turnFile } from './lib.mjs';
+import { formatFindings, readHookInput } from './core/lib.mjs';
+import { lintEdited } from './core/loop.mjs';
 
 const input = await readHookInput();
 // realpath: linters report resolved paths, so a symlinked project dir (macOS /var) would never match
@@ -9,31 +10,9 @@ const cwd = fs.realpathSync(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? proce
 const filePath = input.tool_input?.file_path;
 if (!filePath) process.exit(0);
 
-const abs = path.resolve(cwd, filePath);
-const rel = path.relative(cwd, realPath(abs));
-if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) process.exit(0);
-
-// remember the file for the end-of-turn check, before anything below can exit
-try {
-  const tf = turnFile(cwd, input);
-  fs.mkdirSync(path.dirname(tf), { recursive: true });
-  fs.appendFileSync(tf, rel.split(path.sep).join('/') + '\n');
-} catch (e) {
-  console.log(`codemyrules: could not record the edited file (${e.message.split('\n')[0]})`);
-}
-
-let linters;
-try { linters = readLoopConfig(cwd).linters.filter((l) => l.tier === 'fast'); } catch (e) {
-  console.log(`codemyrules: loop.json could not be read (${e.message.split('\n')[0]})`);
-  process.exit(0);
-}
-if (!linters.length) process.exit(0);
-
-const { findings, notes } = runLinters(cwd, linters, [rel]);
-const blocking = onChangedLines(findings, changedLines(cwd, [rel]));
+const { info, notes, findings } = lintEdited(cwd, input.session_id, filePath);
+for (const i of info) console.log(i);
 if (notes.length) process.stderr.write(notes.join('\n') + '\n');
-if (!blocking.length) process.exit(0);
-
-logFindings(cwd, blocking, 'edit');
-process.stderr.write(formatFindings(blocking) + '\n');
+if (!findings.length) process.exit(0);
+process.stderr.write(formatFindings(findings) + '\n');
 process.exit(2);

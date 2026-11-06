@@ -1,40 +1,16 @@
 #!/usr/bin/env node
-import fs from 'node:fs';
-import path from 'node:path';
-import { BUDGET_MS, FOOTER, changedLines, formatFindings, logFindings, onChangedLines, readHookInput, readLoopConfig, runLinters, turnFile } from './lib.mjs';
+// Claude Code adapter, Stop: exit 2 sends Claude back once; after that retry, a systemMessage tells the user.
+import { formatFindings, readHookInput } from './core/lib.mjs';
+import { lintTurn, stillFailing } from './core/loop.mjs';
 
 const input = await readHookInput();
 const cwd = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
-const tf = turnFile(cwd, input);
-// the turn ends unless we block, so its set of edited files is done
-const end = (code = 0) => { fs.rmSync(tf, { force: true }); process.exit(code); };
+const { action, findings, notes } = lintTurn(cwd, input.session_id, !!input.stop_hook_active);
 
-let edited = [];
-try { edited = [...new Set(fs.readFileSync(tf, 'utf8').split('\n').filter(Boolean))]; } catch { /* no edits this turn */ }
-if (!edited.length) end();
-
-const changed = changedLines(cwd, edited);
-const files = edited.filter((f) => changed?.has(f) && fs.existsSync(path.join(cwd, f)));
-if (!files.length) end();
-
-let linters;
-try { linters = readLoopConfig(cwd).linters; } catch (e) {
-  console.log(`codemyrules: loop.json could not be read (${e.message.split('\n')[0]})`);
-  end();
-}
-const { findings, notes } = runLinters(cwd, linters, files, BUDGET_MS.turn);
-const mine = onChangedLines(findings, changed);
-
-if (mine.length && !input.stop_hook_active) {
+if (action === 'block') {
   if (notes.length) console.log(notes.join('\n'));
-  logFindings(cwd, mine, 'turn');
-  console.error(formatFindings(mine));
+  console.error(formatFindings(findings));
   process.exit(2);
 }
-if (mine.length) {
-  const still = `codemyrules: still failing after one retry:\n${formatFindings(mine).replace(`\n${FOOTER}`, '')}`;
-  console.log(JSON.stringify({ systemMessage: [...notes, still].join('\n') }));
-} else if (notes.length) {
-  console.log(notes.join('\n'));
-}
-end();
+if (action === 'report') console.log(JSON.stringify({ systemMessage: [...notes, stillFailing(findings)].join('\n') }));
+else if (notes.length) console.log(notes.join('\n'));

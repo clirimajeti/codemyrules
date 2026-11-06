@@ -80,7 +80,8 @@ Everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
-| `.claude/codemyrules/guard.mjs`, `shell-guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs`, `lib.mjs`, `secret-patterns.json` | the hooks, their shared code and the credential files they never touch, copied by `install.mjs` |
+| `.claude/codemyrules/guard.mjs`, `shell-guard.mjs`, `lint-edited.mjs`, `lint-turn.mjs` | the Claude Code hooks, copied by `install.mjs` |
+| `.claude/codemyrules/core/` | their shared, harness-neutral code and `secret-patterns.json`, the credential files they never touch |
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |

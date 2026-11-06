@@ -192,11 +192,11 @@ skills/codemyrules/
 └── scripts/
     ├── install.mjs             # installs the loop into a project (dry run by default)
     ├── measure.mjs             # baseline and before/after report
-    ├── guard.mjs               # PreToolUse hook on edits
-    ├── shell-guard.mjs         # Pre- and PostToolUse hook on Bash and NotebookEdit
-    ├── lint-edited.mjs         # PostToolUse hook, fast tier
-    ├── lint-turn.mjs           # Stop hook, all tiers
-    ├── lib.mjs                 # shared hook code
+    ├── core/                   # harness-neutral: checks, snapshot, lint loop, git and linter helpers
+    ├── guard.mjs               # Claude Code adapter: PreToolUse hook on edits
+    ├── shell-guard.mjs         # Claude Code adapter: Pre- and PostToolUse hook on Bash and NotebookEdit
+    ├── lint-edited.mjs         # Claude Code adapter: PostToolUse hook, fast tier
+    ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
     └── test/                   # node:test suites
 ```
 

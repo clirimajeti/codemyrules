@@ -2,10 +2,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CONFIG_DIR, SETTINGS_FILE } from './lib.mjs';
+import { fileURLToPath } from 'node:url';
+import { CONFIG_DIR, SETTINGS_FILE, isMain } from './core/lib.mjs';
 
-const SCRIPTS = ['lib.mjs', 'secret-patterns.json', 'lint-turn.mjs', 'lint-edited.mjs', 'guard.mjs', 'shell-guard.mjs'];
+// the harness-neutral core, then the Claude Code adapters that the hook entries run
+const SCRIPTS = [
+  'core/lib.mjs', 'core/secret-patterns.json', 'core/checks.mjs', 'core/loop.mjs', 'core/snapshot.mjs',
+  'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs',
+];
+// files earlier versions installed that nothing uses any more
+const OBSOLETE = ['lib.mjs', 'secret-patterns.json'];
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const EXCLUDES = [`${CONFIG_DIR}/`, SETTINGS_FILE];
 
@@ -49,6 +55,7 @@ export function plan(projectDir, loopConfig) {
   };
   const dest = path.join(projectDir, CONFIG_DIR);
   for (const s of SCRIPTS) add(path.join(dest, s), fs.readFileSync(path.join(SELF_DIR, s), 'utf8'), `copy of ${s}`);
+  for (const s of OBSOLETE) if (fs.existsSync(path.join(dest, s))) items.push({ path: path.join(dest, s), action: 'delete', preview: 'no longer used', content: null });
   add(path.join(dest, 'loop.json'), JSON.stringify(loopConfig, null, 2) + '\n');
 
   const sp = path.join(projectDir, SETTINGS_FILE);
@@ -155,10 +162,11 @@ function main(argv) {
     return 0;
   }
   for (const i of items) {
+    if (i.action === 'delete') { fs.rmSync(i.path, { force: true }); continue; }
     fs.mkdirSync(path.dirname(i.path), { recursive: true });
     fs.writeFileSync(i.path, i.content);
   }
   return 0;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main(process.argv);
+if (isMain(import.meta.url)) process.exitCode = main(process.argv);

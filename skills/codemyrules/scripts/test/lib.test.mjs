@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import {
   FOOTER, parseHunks, unquotePath, dirtyFiles, changedLines, parseLinterOutput, onChangedLines,
   runLinters, formatFindings, logFindings, matchesPattern, readLoopConfig, isSecretFile,
-} from '../lib.mjs';
+} from '../core/lib.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, stdio: 'pipe' });

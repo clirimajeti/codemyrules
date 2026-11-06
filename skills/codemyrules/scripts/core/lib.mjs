@@ -194,8 +194,8 @@ export function logFindings(cwd, findings, event) {
 }
 
 // the project-relative paths edited in this session's current turn, one per line
-export const turnFile = (cwd, input) =>
-  path.join(cwd, CONFIG_DIR, `turn-${String(input.session_id || 'default').replace(/[^\w-]/g, '_')}.txt`);
+export const turnFile = (cwd, sessionId) =>
+  path.join(cwd, CONFIG_DIR, `turn-${String(sessionId || 'default').replace(/[^\w-]/g, '_')}.txt`);
 
 export function readLoopConfig(cwd) {
   let raw = {};
@@ -209,6 +209,13 @@ export function readLoopConfig(cwd) {
     linters: list(raw?.linters).filter((l) => Array.isArray(l?.command) && Array.isArray(l.extensions)),
     protect: list(raw?.protect).filter((p) => typeof p === 'string'),
   };
+}
+
+// true when this module is the script node was started with; compared resolved, because a symlinked path
+// (macOS /var, a symlinked project dir) gives a different argv[1] and the script would silently do nothing
+export function isMain(metaUrl) {
+  if (!process.argv[1]) return false;
+  try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(new URL(metaUrl)); } catch { return false; }
 }
 
 export async function readHookInput() {

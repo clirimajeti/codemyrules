@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { CONFIG_DIR, matchesPattern } from './lib.mjs';
+import { CONFIG_DIR, isMain, matchesPattern } from './core/lib.mjs';
 
 export const AGENT_DOC_PATTERNS = ['**/CLAUDE.md', '**/AGENTS.md', '**/GEMINI.md', '.github/copilot-instructions.md', '.github/instructions/*.md', '.cursor/rules/**', '.cursorrules', '.windsurfrules'];
 
@@ -102,7 +101,7 @@ function report(dir) {
   console.log(`failures logged: ${stats.total} (edit: ${stats.byEvent.edit}, turn: ${stats.byEvent.turn})`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   const [cmd, dir, ...rest] = process.argv.slice(2);
   const i = rest.indexOf('--rules');
   if (cmd === 'baseline' && dir) baseline(dir, i >= 0 ? rest[i + 1] : undefined);

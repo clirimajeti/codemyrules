@@ -65,8 +65,8 @@ test('--apply installs files, is idempotent, and leaves git clean', (t) => {
   const { dir, cfg, git } = tempRepo(t);
   assert.equal(run(dir, cfg, '--apply').status, 0);
   assert.equal(run(dir, cfg, '--apply').status, 0);
-  for (const f of ['lib', 'lint-turn', 'lint-edited', 'guard'])
-    assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules', f + '.mjs')));
+  for (const f of ['core/lib', 'core/checks', 'core/loop', 'core/snapshot', 'lint-turn', 'lint-edited', 'guard', 'shell-guard'])
+    assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules', f + '.mjs')), f);
   assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules/loop.json')));
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
   assert.equal(s.hooks.Stop.length, 1);
@@ -187,9 +187,41 @@ test('findExecutable looks a bare name up on PATH', () => {
 test('the installed lib.mjs finds its secret patterns next to it', (t) => {
   const { dir, cfg } = tempRepo(t);
   assert.equal(run(dir, cfg, '--apply').status, 0);
-  const lib = path.join(dir, '.claude/codemyrules/lib.mjs');
+  const lib = path.join(dir, '.claude/codemyrules/core/lib.mjs');
   const r = spawnSync('node', ['--input-type=module', '-e',
     `import { isSecretFile } from ${JSON.stringify(new URL(`file://${lib}`).href)}; console.log(isSecretFile('.env'), isSecretFile('src/a.ts'))`], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), 'true false');
+});
+
+test('every installed hook runs from the installed folder', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--apply').status, 0);
+  const hook = (script, input) => spawnSync('node', [path.join(dir, '.claude/codemyrules', script)], {
+    input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+  });
+  const ask = hook('guard.mjs', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.ts'), old_string: 'x', new_string: 'x // eslint-disable-line' } });
+  assert.equal(ask.status, 0, ask.stderr);
+  assert.equal(JSON.parse(ask.stdout).hookSpecificOutput.permissionDecision, 'ask');
+  for (const [script, input] of [
+    ['lint-edited.mjs', { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.txt') } }],
+    ['lint-turn.mjs', {}],
+    ['shell-guard.mjs', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'i' }],
+    ['shell-guard.mjs', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'i' }],
+  ]) {
+    const r = hook(script, input);
+    assert.equal(r.status, 0, `${script}: ${r.stderr}`);
+    assert.equal(r.stdout, '', script);
+  }
+});
+
+test('reinstalling removes files that earlier versions installed', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.claude/codemyrules'), { recursive: true });
+  for (const f of ['lib.mjs', 'secret-patterns.json']) fs.writeFileSync(path.join(dir, '.claude/codemyrules', f), 'old');
+  const dry = run(dir, cfg);
+  assert.match(dry.stdout, /^delete .*\/lib\.mjs$/m);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules/lib.mjs')));
+  assert.equal(run(dir, cfg, '--apply').status, 0);
+  for (const f of ['lib.mjs', 'secret-patterns.json']) assert.equal(fs.existsSync(path.join(dir, '.claude/codemyrules', f)), false, f);
 });
