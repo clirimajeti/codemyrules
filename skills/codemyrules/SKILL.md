@@ -1,7 +1,7 @@
 ---
 name: codemyrules
 description: Turn a project's decisions, coding patterns and agent-doc instructions into lint rules across its whole stack, slim the CLAUDE.md / AGENTS.md / instructions files those rules now cover, and set up a private, silent lint feedback loop for Claude Code. Routes JS/TS/Vue/Svelte to eslint-pattern-rules and Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby to backend-pattern-rules, merges their candidates into one selection, and builds what the user picks. Use when the user wants to turn their decisions, patterns or agent docs into rules, slim or shrink CLAUDE.md or AGENTS.md, set up lint feedback for agents, or names codemyrules. Not for fixing existing lint errors or tuning an off-the-shelf linter config.
-version: "0.6.0"
+version: "0.7.0"
 metadata:
   author: clirimajeti <clirimajeti@gmail.com>
   tags: [lint, agent-docs, claude-md, hooks, code-quality]
@@ -49,7 +49,8 @@ Look these up rather than asking:
   Hand them to both sub-skills in step 2 instead of letting each detect them again.
 - **A previous run**: `.claude/codemyrules/baseline.json`.
   When it exists, run `node <skill-dir>/scripts/measure.mjs report <project-dir>` now, for step 7, and `codemyrules status <project-dir>` to see whether the loop's hooks still run.
-  Hooks that run copies from before the npm package, or a CLI that is missing, are reinstalled in step 5 with the project's own `loop.json`.
+  Hooks that run copies from before the npm package, a CLI that is missing, or a package that is not pinned, are reinstalled in step 5 with the project's own `loop.json`.
+  A pinned version older than the global package is not updated on its own: name both versions in step 5 and let the user decide.
 
 Count with `rg -c` and `rg --files`, always with a path (with several `-g` globs the last matching one wins, so put exclusions like `-g '!*.spec.ts'` after the includes), and leave out vendored and generated folders (`node_modules/`, `dist/`, `build/`, `target/`).
 A repository with both stacks: note each stack's root folder, so every candidate has one owner.
@@ -151,7 +152,7 @@ Draft the config in a temporary file outside the project, as `loop.json`:
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
 
 The installer validates the config (formats, tiers, `command` as a list with `"{files}"`, every `-c` or `--config` path existing, the command's tool installed (on `PATH`, or a path in the project), `protect` as a list) and refuses a broken one with a message per field, before it writes anything.
-The hooks run the `codemyrules` npm package, installed globally, so one `npm update -g codemyrules` updates every project; nothing is copied into the project.
+The installer copies the globally installed `codemyrules` npm package into `.claude/codemyrules/pkg/`, records its version and sha256 in `pin.json`, and the hooks run that copy, so an npm update reaches the project only when the installer runs there again.
 Check it with `codemyrules --version`: when it is missing or older than this skill's `version`, the plan starts with `npm install -g codemyrules@<this skill's version>`, approved together with the loop, and run before the installer.
 Run the installer as a dry run and show its plan:
 
@@ -176,7 +177,7 @@ node <skill-dir>/scripts/measure.mjs baseline <project-dir> --rules <tmp>/rules.
 ```
 
 Rules are keyed by their linter rule id; when two picked conventions share one (two `no-restricted-syntax` entries), they are counted together, so say so in the report or build one of them as a named custom rule.
-It records the agent-doc tokens (characters / 4), split into always-loaded docs (root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, the files they import with `@path`, and the root Copilot, Cursor and Windsurf files) and on-demand docs (folder agent docs, plus the Markdown files any agent doc links to, one level deep), plus the rules and their open hits, in `.claude/codemyrules/baseline.json`.
+It records the agent-doc tokens (characters / 4), split into always-loaded docs (root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, the files they import with `@path`, and the root Copilot, Cursor and Windsurf files) and on-demand docs (folder agent docs, plus the Markdown files any agent doc links to, and the files those link to in turn), plus the rules and their open hits, in `.claude/codemyrules/baseline.json`.
 A later run of this skill compares against it.
 
 Done when `baseline.json` exists, or the loop was not installed.

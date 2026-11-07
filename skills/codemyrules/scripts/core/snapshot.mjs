@@ -14,14 +14,18 @@ const skipped = (e) => `codemyrules: shell guard skipped (${firstLine(e)})`;
 const ours = (f) => f.startsWith(`${CONFIG_DIR}/`);
 
 // The setup itself is git-excluded, so dirtyFiles never lists it: always snapshot it.
-// That is the settings file and loop.json, plus scripts copied by versions before the npm package (top level and core/).
+// That is the settings file, loop.json, the pinned package the hooks run (pin.json and pkg/),
+// plus scripts copied by versions before the npm package (top level and core/).
 // Not recursive: a project may keep its linters' own node_modules in this folder, thousands of files to hash per command.
+const PKG_SCRIPTS = 'pkg/skills/codemyrules/scripts';
 function setupFiles(cwd) {
   const dir = path.join(cwd, CONFIG_DIR);
   const scripts = (sub) => {
-    try { return fs.readdirSync(path.join(dir, sub)).filter((f) => f.endsWith('.mjs') || f === 'secret-patterns.json').map((f) => path.posix.join(sub, f)); } catch { return []; }
+    try { return fs.readdirSync(path.join(dir, sub)).filter((f) => f.endsWith('.mjs') || f.endsWith('.json')).map((f) => path.posix.join(sub, f)); } catch { return []; }
   };
-  return [SETTINGS_FILE, `${CONFIG_DIR}/loop.json`, ...[...scripts('.'), ...scripts('core')].map((f) => `${CONFIG_DIR}/${path.posix.normalize(f)}`)];
+  const pinned = ['pin.json', 'pkg/package.json', ...scripts(PKG_SCRIPTS), ...scripts(`${PKG_SCRIPTS}/core`)];
+  return [SETTINGS_FILE, `${CONFIG_DIR}/loop.json`, ...[...pinned, ...scripts('core')].map((f) => `${CONFIG_DIR}/${f}`),
+    ...scripts('.').filter((f) => f.endsWith('.mjs') || f === 'secret-patterns.json').map((f) => `${CONFIG_DIR}/${path.posix.normalize(f)}`)];
 }
 
 // A snapshot whose tool never finished (the user denied it, the session crashed) and a turn that never
@@ -126,7 +130,8 @@ export function checkChanges(cwd, id, sessionId, command) {
 }
 
 // the user-facing line for setup files the installer changed
-export const installerNotice = (files) => `codemyrules: the codemyrules installer changed ${files.join(', ')}.`;
+// the pinned copy counts as one entry, not one per file
+export const installerNotice = (files) => `codemyrules: the codemyrules installer changed ${[...new Set(files.map((f) => (f.startsWith(`${CONFIG_DIR}/pkg/`) ? `${CONFIG_DIR}/pkg/` : f)))].join(', ')}.`;
 
 // what to tell the agent and the user; what: "command" or "notebook edit", tool: the harness's tool name
 export function changeBlock(what, tool, reasons) {

@@ -114,6 +114,19 @@ test('status shows the package, the hooks, the config and recent failures', (t) 
   assert.match(r.stdout, /\*\*\/eslint\.config\.\*/);
   assert.match(r.stdout, /no-raw-fetch: 2/);
   assert.doesNotMatch(r.stdout, /old-rule/);
+  assert.match(r.stdout, /pinned: codemyrules \S+ \(sha256 [0-9a-f]{64}\)\n/);
+  assert.doesNotMatch(r.stdout, /not pinned/);
+});
+
+test('status names a changed pinned copy and hooks that run an unpinned package', (t) => {
+  const { dir, sp } = installedRepo(t);
+  fs.appendFileSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/guard.mjs'), '//');
+  const s = JSON.parse(fs.readFileSync(sp, 'utf8'));
+  s.hooks.Stop.push({ hooks: [{ type: 'command', command: `node "${CLI}" hook turn` }] });
+  fs.writeFileSync(sp, JSON.stringify(s));
+  const r = cli(['status', dir]);
+  assert.match(r.stdout, /the copy was changed since/);
+  assert.match(r.stdout, /not pinned/);
 });
 
 test('status names broken hooks, copies from 0.4 and a missing install', (t) => {

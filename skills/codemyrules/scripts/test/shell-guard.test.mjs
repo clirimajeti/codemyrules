@@ -158,6 +158,17 @@ test('snapshots and turn files left over for a day are swept, fresh ones stay', 
   assert.ok(left.includes('shell-running.json') && left.includes('turn-live.txt'), left.join());
 });
 
+test('a change to the pinned package the hooks run through the shell blocks', (t) => {
+  const dir = repo(t);
+  const core = path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/core');
+  fs.mkdirSync(core, { recursive: true });
+  write(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/guard.mjs', 'export const main = () => 0;\n');
+  write(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/core/checks.mjs', 'export {};\n');
+  const out = around(dir, () => write(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/core/checks.mjs', 'export const protectReason = () => null;\n'));
+  assert.equal(out.decision, 'block');
+  assert.match(out.reason, /core\/checks\.mjs is part of the codemyrules setup/);
+});
+
 test('the codemyrules installer may change the setup: the user is told, the agent is not sent back', (t) => {
   const dir = repo(t);
   const installer = { tool_input: { command: 'codemyrules install . --config /tmp/loop.json --apply' } };
@@ -170,6 +181,15 @@ test('the codemyrules installer may change the setup: the user is told, the agen
   assert.equal(out.decision, undefined);
   assert.match(out.systemMessage, /installer changed .*loop\.json/s);
   assert.match(out.systemMessage, /settings\.local\.json/);
+
+  // a new pinned copy is named once, not file by file
+  assert.equal(hook(dir, 'PreToolUse', installer).status, 0);
+  fs.mkdirSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/core'), { recursive: true });
+  write(dir, '.claude/codemyrules/pkg/package.json', '{}');
+  write(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs', '');
+  write(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/core/lib.mjs', '');
+  const again = JSON.parse(hook(dir, 'PostToolUse', installer).stdout);
+  assert.match(again.systemMessage, /installer changed \.claude\/codemyrules\/pkg\/\.$/);
 });
 
 test('an installer command that also changes a protected file still blocks for that file', (t) => {

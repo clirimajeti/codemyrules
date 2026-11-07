@@ -81,11 +81,12 @@ CI, running the project's own lint setup, stays the safety net.
 
 ## Files
 
-Apart from the npm package, everything lives in the project, private to the user who installed it:
+Everything lives in the project, private to the user who installed it:
 
 | Path | What |
 |---|---|
-| the `codemyrules` npm package, installed globally | the hooks (`codemyrules hook guard\|shell\|edited\|turn`), their shared code and `secret-patterns.json`, the credential files they never touch |
+| `.claude/codemyrules/pkg/` | the pinned copy of the `codemyrules` npm package the hooks run (`codemyrules hook guard\|shell\|edited\|turn`): their shared code and `secret-patterns.json`, the credential files they never touch |
+| `.claude/codemyrules/pin.json` | the pinned version and the sha256 of the copy |
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
@@ -94,11 +95,16 @@ Apart from the npm package, everything lives in the project, private to the user
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
-Each entry runs `node "<global package>/skills/codemyrules/scripts/cli.mjs" hook <name>`; the installer finds the package through the `codemyrules` command on `PATH` and refuses to install without it.
+Each entry runs `node "<project>/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs" hook <name>`.
+The installer copies the package it finds through the `codemyrules` command on `PATH` (the global install) and refuses to install without it.
+The copy sits in the setup folder, so the guard asks before any edit to it, and the shell guard catches a command that changes it.
 
 ## Updates
 
-Nothing in the project needs updating: the hooks run the globally installed package, so `npm update -g codemyrules` updates every project at once.
+Updating is an explicit act per project: `npm update -g codemyrules` changes only the global package, and the project keeps running its pinned copy.
+Run `codemyrules install <project-dir>` to see the change (`codemyrules 0.6.0 -> 0.7.0` and the new sha256), and add `--apply` to take it.
+So a bad or compromised release never runs in a project on its own, inside a hook that sees every edit.
+Versions 0.5 and 0.6 ran the global package directly; installing again pins a copy.
 Versions before 0.5 copied the scripts into `.claude/codemyrules/`; installing again removes those copies and their hook entries and keeps `loop.json`, the failure log and the baseline.
 `codemyrules install <project-dir> --apply` without `--config` reinstalls with the project's own `loop.json`.
 
@@ -122,7 +128,7 @@ The two lines in `.git/info/exclude` are harmless and can stay or go.
 
 ## Status
 
-`codemyrules status <project-dir>` shows what is installed: the package version, whether every hook entry runs a CLI that exists, copies left from before the npm package, the linters, the protected paths and the failures of the last 7 days per rule.
+`codemyrules status <project-dir>` shows what is installed: the package version, whether every hook entry runs a CLI that exists, the pinned version and whether the copy still matches its sha256, hooks that are not pinned, copies left from before the npm package, the linters, the protected paths and the failures of the last 7 days per rule.
 
 ## Sharing with the team
 

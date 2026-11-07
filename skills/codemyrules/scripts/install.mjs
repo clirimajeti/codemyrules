@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,10 +9,14 @@ import { CONFIG_DIR, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mj
 const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
 const EXCLUDES = [`${CONFIG_DIR}/`, SETTINGS_FILE];
 // where the CLI sits inside the npm package
-const CLI_IN_PACKAGE = 'codemyrules/skills/codemyrules/scripts/cli.mjs';
+const SCRIPTS = 'skills/codemyrules/scripts';
+const CLI_IN_PACKAGE = `codemyrules/${SCRIPTS}/cli.mjs`;
+// the project's pinned copy of the package, and its version and hash
+const PIN_DIR = 'pkg';
+const PIN_FILE = 'pin.json';
 
-// The hooks run the CLI of the globally installed npm package, so `npm update -g codemyrules` updates every project.
-// Not the CLI next to this installer: run through npx or from a plugin cache, that path is temporary or versioned.
+// The installer copies the globally installed npm package into the project, and the hooks run that copy.
+// So `npm update -g codemyrules` changes no project: a release runs in a project only after `codemyrules install` there.
 // Found through the `codemyrules` command on PATH, not `npm root -g`: npm masks token-like path parts as *** in its output.
 export function findCli(env = process.env) {
   for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
@@ -58,6 +63,25 @@ export function mergeSettings(existing, hooks) {
 }
 
 const readIf = (p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null);
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
+
+// <root>/skills/codemyrules/scripts/cli.mjs
+const packageRoot = (cli) => path.resolve(path.dirname(cli), '../../..');
+export const pinnedCli = (projectDir) => path.join(projectDir, CONFIG_DIR, PIN_DIR, SCRIPTS, 'cli.mjs');
+
+// what the hooks need from the package, as in its package.json "files": the scripts and core/, not the tests
+export function packageFiles(root) {
+  const list = (sub, keep) => { try { return fs.readdirSync(path.join(root, sub)).filter(keep).map((f) => path.posix.join(sub, f)); } catch { return []; } };
+  return ['package.json', ...list(SCRIPTS, (f) => f.endsWith('.mjs')), ...list(`${SCRIPTS}/core`, () => true)]
+    .filter((f) => fs.statSync(path.join(root, f), { throwIfNoEntry: false })?.isFile()).sort();
+}
+
+// sha256 over the file names and contents, so a changed, added or removed file changes it
+export function treeHash(root, files = packageFiles(root)) {
+  const h = crypto.createHash('sha256');
+  for (const f of files) h.update(f).update('\0').update(fs.readFileSync(path.join(root, f))).update('\0');
+  return h.digest('hex');
+}
 
 function excludePath(projectDir) {
   const p = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
@@ -75,10 +99,26 @@ export function plan(projectDir, loopConfig, cli) {
   };
   const dest = path.join(projectDir, CONFIG_DIR);
   for (const s of COPIED) if (fs.existsSync(path.join(dest, s))) items.push({ path: path.join(dest, s), action: 'delete', preview: 'a copy from before the npm package', content: null });
+
+  // the pinned copy: replaced when the package differs from it, or when the copy was changed
+  const src = packageRoot(cli);
+  const files = packageFiles(src);
+  const pin = { version: readJson(path.join(src, 'package.json'))?.version ?? 'unknown', sha256: treeHash(src, files) };
+  const pkgDir = path.join(dest, PIN_DIR);
+  if (!fs.existsSync(pkgDir) || treeHash(pkgDir) !== pin.sha256) {
+    const old = readJson(path.join(dest, PIN_FILE));
+    items.push({
+      path: pkgDir,
+      action: fs.existsSync(pkgDir) ? 'update' : 'create',
+      preview: `codemyrules ${old?.version && old.version !== pin.version ? `${old.version} -> ` : ''}${pin.version} (sha256 ${pin.sha256}), copied from ${src}\nthe hooks run this copy; a newer release reaches this project only when you install again`,
+      copy: { from: src, files },
+    });
+  }
+  add(path.join(dest, PIN_FILE), JSON.stringify(pin, null, 2) + '\n');
   add(path.join(dest, 'loop.json'), JSON.stringify(loopConfig, null, 2) + '\n');
 
   const sp = path.join(projectDir, SETTINGS_FILE);
-  const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(cli));
+  const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(pinnedCli(projectDir)));
   add(sp, JSON.stringify(settings, null, 2) + '\n');
 
   const ep = excludePath(projectDir);
@@ -206,6 +246,14 @@ function carryOut(items, apply) {
   }
   for (const i of items) {
     if (i.action === 'delete') { fs.rmSync(i.path, { recursive: true, force: true }); continue; }
+    if (i.copy) {
+      fs.rmSync(i.path, { recursive: true, force: true });
+      for (const f of i.copy.files) {
+        fs.mkdirSync(path.dirname(path.join(i.path, f)), { recursive: true });
+        fs.copyFileSync(path.join(i.copy.from, f), path.join(i.path, f));
+      }
+      continue;
+    }
     fs.mkdirSync(path.dirname(i.path), { recursive: true });
     fs.writeFileSync(i.path, i.content);
   }
@@ -213,7 +261,6 @@ function carryOut(items, apply) {
 }
 
 const projectArg = (args) => { const d = args.find((a) => !a.startsWith('--')); return d && path.resolve(d); };
-const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 
 // removes the setup folder and codemyrules' own hook entries; the .git/info/exclude lines are harmless and stay
 export function uninstall(args) {
@@ -250,13 +297,21 @@ export function status(args) {
     return 0;
   }
   const targets = [...new Set(commands.map((c) => /^node "(.+)" hook \w+$/.exec(c)?.[1]).filter(Boolean))];
-  const copyHooks = commands.filter((c) => c.includes(`/${CONFIG_DIR}/`)).length;
+  const copyHooks = commands.filter((c) => !/cli\.mjs" hook \w+$/.test(c)).length;
   const missing = targets.filter((t) => !fs.existsSync(t));
   if (targets.length === 1 && !missing.length && !copyHooks) console.log(`hooks: ${commands.length} entries, all run ${targets[0]}`);
   else {
     console.log(`hooks: ${commands.length} entries`);
     for (const t of targets) console.log(`  ${missing.includes(t) ? 'missing' : 'runs'}: ${t}`);
     if (copyHooks) console.log(`  ${copyHooks} run copies from before the npm package; reinstall to replace them`);
+  }
+  const pinned = pinnedCli(projectDir);
+  if (targets.some((t) => t !== pinned)) console.log(`  not pinned: every npm update of what they run reaches this project. Reinstall to pin a copy: codemyrules install ${projectDir} --apply`);
+  const pin = readJson(path.join(dest, PIN_FILE));
+  if (pin) {
+    const intact = fs.existsSync(path.join(dest, PIN_DIR)) && treeHash(path.join(dest, PIN_DIR)) === pin.sha256;
+    console.log(`pinned: codemyrules ${pin.version} (sha256 ${pin.sha256})${intact ? '' : ', but the copy was changed since; reinstall to restore it'}`);
+    if (pin.version !== version) console.log(`  this CLI is ${version}; to move the project to it: codemyrules install ${projectDir} --apply`);
   }
   const copies = COPIED.filter((f) => fs.existsSync(path.join(dest, f)));
   if (copies.length) console.log(`copies from before the npm package: ${copies.join(', ')} (reinstall to remove them)`);

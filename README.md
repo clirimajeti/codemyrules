@@ -1,5 +1,6 @@
 <h1 align="center">codemyrules</h1>
 <p align="center">
+  <a href="https://www.npmjs.com/package/codemyrules"><img alt="npm" src="https://img.shields.io/npm/v/codemyrules?style=flat-square" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" /></a>
   <a href="https://agentskills.io"><img alt="Agent Skill" src="https://img.shields.io/badge/agent-skill-purple?style=flat-square" /></a>
   <a href="https://github.com/clirimajeti/agent-rules-bench"><img alt="Benchmark" src="https://img.shields.io/badge/evidence-agent--rules--bench-green?style=flat-square" /></a>
@@ -30,6 +31,13 @@ claude plugin install codemyrules@codemyrules
 
 This also installs the two sub-skills codemyrules drives, [`eslint-pattern-rules`](https://github.com/clirimajeti/eslint-pattern-rules) and [`backend-pattern-rules`](https://github.com/clirimajeti/backend-pattern-rules), as dependencies.
 
+The feedback loop's hooks ship as the [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package.
+The skill installs it when you set up the loop, or install it yourself:
+
+```bash
+npm install -g codemyrules
+```
+
 Then ask in your own words.
 The skill is model-invoked, so there is no command to remember:
 
@@ -48,6 +56,36 @@ npx skills add clirimajeti/backend-pattern-rules
 
 The rules work in every harness.
 The feedback loop is offered only in Claude Code for now, see [Harness support](#harness-support).
+
+</details>
+
+<details>
+<summary><strong>npm (the feedback loop only)</strong></summary>
+
+The [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package holds the feedback loop's hooks and its CLI, without the skill.
+The skill installs it for you when you set up the loop, but you can also install it yourself and set up the loop by hand:
+
+```bash
+npm install -g codemyrules
+codemyrules install . --config loop.json           # dry run: shows the plan
+codemyrules install . --config loop.json --apply   # installs the hooks
+```
+
+`loop.json` names your linters per tier and the files the guard protects:
+
+```json
+{
+  "linters": [
+    { "name": "eslint", "format": "eslint", "tier": "full", "extensions": [".ts", ".tsx"],
+      "command": ["node_modules/.bin/eslint", "--format", "json", "{files}"] }
+  ],
+  "protect": ["**/eslint.config.*", "eslint-rules/**"]
+}
+```
+
+The installer checks the config and refuses a broken one before it writes anything.
+Formats are `eslint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
+It needs Node 22 or later and Claude Code.
 
 </details>
 
@@ -137,7 +175,7 @@ CI stays green, and the feedback loop still applies the rule to new code, so the
 |---|---|
 | Decision records | `docs/adr/`, `docs/decisions/`, `notes/decisions/`, `ADR-*.md`, `CONTRIBUTING` |
 | Agent docs | `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.github/instructions/`, `.cursor/rules/`, `.cursorrules`, `.windsurfrules` |
-| Docs linked from agent docs | `@file` imports and Markdown links to repo files, one level deep |
+| Docs linked from agent docs | `@file` imports and Markdown links to repo files, followed through linked files too (an `index.md` and the topic files it links) |
 | Code | majority patterns, and code that goes around the project's own helpers |
 
 ## The Feedback Loop
@@ -160,8 +198,10 @@ Three tiers, each silent when clean:
   The hooks go into `.claude/settings.local.json`, the config into `.claude/codemyrules/`, and both into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
-- **One copy, kept current.**
-  The hooks run the [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package, installed globally, so `npm update -g codemyrules` updates every project at once.
+- **Pinned per project.**
+  The installer copies the globally installed [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package into `.claude/codemyrules/pkg/` and records its version and sha256 in `pin.json`, and the hooks run that copy.
+  `npm update -g codemyrules` changes no project: a new release runs in a project only after `codemyrules install . --apply` there, whose dry run shows the version change first.
+  A bad or compromised release therefore never reaches your projects on its own.
 
 `codemyrules status .` shows what is installed and what failed lately; `codemyrules uninstall . --apply` removes it again (dry run without `--apply`).
 [`references/feedback-loop.md`](skills/codemyrules/references/feedback-loop.md) has the details.
@@ -207,7 +247,7 @@ scripts/eval.sh                 # runs them, with the two sub-skill plugins stag
 
 Run the tests with `npm test`.
 Before a release, `npm run release-check` packs the package, installs it into a throwaway npm prefix and drives a few headless Claude Code sessions (Haiku) against it in a throwaway repo; it needs `claude` logged in and takes about a minute.
-To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project uses it.
+To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project pins a copy of it (reinstall after each change).
 `npm run eval` runs the skill's eval cases with `claude plugin eval` (pass `-- --runs 3` and the like through); it copies the two sibling sub-skill checkouts into `.eval-deps/` first, because an eval loads no other plugins.
 A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match), runs `npm publish`, and only then pushes, so the skill never names an unpublished version.
 ## Flowchart

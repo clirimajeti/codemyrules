@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findExecutable, hookEntries, mergeSettings, validateLoopConfig } from '../install.mjs';
+import { findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
 
 const INSTALL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'install.mjs');
 const CLI = path.join(path.dirname(INSTALL), 'cli.mjs');
@@ -27,7 +27,7 @@ function tempRepo(t) {
   return { dir, cfg, git };
 }
 
-// --cli points the hooks at this checkout; without it the installer looks for the global npm package
+// --cli copies this checkout into the project; without it the installer copies the global npm package
 const run = (dir, cfg, ...extra) =>
   spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', CLI, ...extra], { encoding: 'utf8' });
 
@@ -68,11 +68,11 @@ test('--apply installs files, is idempotent, and leaves git clean', (t) => {
   const { dir, cfg, git } = tempRepo(t);
   assert.equal(run(dir, cfg, '--apply').status, 0);
   assert.equal(run(dir, cfg, '--apply').status, 0);
-  // no copies: the hooks run the npm package, the project keeps only its config
-  assert.deepEqual(fs.readdirSync(path.join(dir, '.claude/codemyrules')), ['loop.json']);
+  // the config, and the pinned copy of the package the hooks run
+  assert.deepEqual(fs.readdirSync(path.join(dir, '.claude/codemyrules')).sort(), ['loop.json', 'pin.json', 'pkg']);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
   assert.equal(s.hooks.Stop.length, 1);
-  assert.equal(s.hooks.PreToolUse[0].hooks[0].command, `node "${CLI}" hook guard`);
+  assert.equal(s.hooks.PreToolUse[0].hooks[0].command, `node "${pinnedCli(dir)}" hook guard`);
   const ex = fs.readFileSync(path.join(dir, '.git/info/exclude'), 'utf8');
   assert.equal(ex.split('\n').filter((l) => l === '.claude/codemyrules/').length, 1);
   assert.equal(ex.split('\n').filter((l) => l === '.claude/settings.local.json').length, 1);
@@ -238,11 +238,11 @@ test('installing over a copy-based install removes the copies and their hook ent
   assert.match(dry.stdout, /^delete .*guard\.mjs$/m);
   assert.ok(fs.existsSync(path.join(state, 'guard.mjs')));
   assert.equal(run(dir, cfg, '--apply').status, 0);
-  assert.deepEqual(fs.readdirSync(state).sort(), ['failures.log', 'loop.json']);
+  assert.deepEqual(fs.readdirSync(state).sort(), ['failures.log', 'loop.json', 'pin.json', 'pkg']);
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8')).hooks;
   const commands = Object.values(hooks).flat().flatMap((e) => e.hooks.map((h) => h.command));
   assert.ok(commands.includes('echo mine'));
-  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/')), commands.join('\n'));
+  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/') && !c.includes(pinnedCli(dir))), commands.join('\n'));
   assert.equal(commands.filter((c) => c.endsWith(' hook guard')).length, 1);
 });
 
@@ -266,7 +266,7 @@ function npmPrefix(t) {
   return { env, cli, install };
 }
 
-test('without --cli the hooks point at the global npm package, and without one the installer says how to get it', (t) => {
+test('without --cli the installer pins the global npm package, and without one it says how to get it', (t) => {
   const { dir, cfg } = tempRepo(t);
   const { env, cli, install } = npmPrefix(t);
   const r = spawnSync(process.execPath, [INSTALL, dir, '--config', cfg, '--apply'], { encoding: 'utf8', env });
@@ -277,7 +277,46 @@ test('without --cli the hooks point at the global npm package, and without one t
   const ok = spawnSync(process.execPath, [INSTALL, dir, '--config', cfg, '--apply'], { encoding: 'utf8', env });
   assert.equal(ok.status, 0, ok.stderr);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
-  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${cli}" hook turn`);
+  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${pinnedCli(dir)}" hook turn`);
+  assert.equal(fs.readFileSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs'), 'utf8'), fs.readFileSync(cli, 'utf8'));
+});
+
+// a package checkout to pin, so a test can change it like a new release
+function fakePackage(t, version) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-pkg-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const src = path.resolve(path.dirname(INSTALL), '../../..');
+  for (const f of packageFiles(src)) {
+    fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+    fs.copyFileSync(path.join(src, f), path.join(root, f));
+  }
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version }));
+  return { root, cli: path.join(root, 'skills/codemyrules/scripts/cli.mjs') };
+}
+
+test('a new release reaches a project only when it is installed again there, and the plan names the version change', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const pkg = fakePackage(t, '1.0.0');
+  const install = (...extra) => spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, ...extra], { encoding: 'utf8' });
+  assert.equal(install('--apply').status, 0);
+  const pinned = path.join(dir, '.claude/codemyrules/pkg');
+  const pin = JSON.parse(fs.readFileSync(path.join(dir, '.claude/codemyrules/pin.json'), 'utf8'));
+  assert.deepEqual(pin, { version: '1.0.0', sha256: treeHash(pkg.root) });
+  // the tests stay out of the copy
+  assert.ok(!packageFiles(pinned).some((f) => f.includes('/test/')));
+  assert.match(install().stdout, /nothing to change/);
+
+  // a release: the project still runs 1.0.0 until it is installed again
+  fs.writeFileSync(path.join(pkg.root, 'package.json'), JSON.stringify({ version: '1.1.0' }));
+  fs.appendFileSync(path.join(pkg.root, 'skills/codemyrules/scripts/guard.mjs'), '\n// 1.1.0\n');
+  assert.doesNotMatch(fs.readFileSync(path.join(pinned, 'skills/codemyrules/scripts/guard.mjs'), 'utf8'), /1\.1\.0/);
+  assert.match(install().stdout, /update .*pkg\n  codemyrules 1\.0\.0 -> 1\.1\.0 \(sha256 [0-9a-f]{64}\)/);
+  assert.equal(install('--apply').status, 0);
+  assert.match(fs.readFileSync(path.join(pinned, 'skills/codemyrules/scripts/guard.mjs'), 'utf8'), /1\.1\.0/);
+
+  // a changed copy is restored
+  fs.writeFileSync(path.join(pinned, 'skills/codemyrules/scripts/core/lib.mjs'), 'tampered');
+  assert.match(install().stdout, /update .*pkg/);
 });
 
 test('validateLoopConfig checks a linter cwd and resolves its command and config from there', () => {

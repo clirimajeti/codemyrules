@@ -23,16 +23,17 @@ function imports(cwd, tracked) {
 }
 
 // Markdown files an agent doc links to, like [backend](docs/backend.md): read only when the agent follows the link.
-// ponytail: one level only; links inside linked docs are not followed, so a linked doc site is not counted whole.
+// Links in those files are followed too, so an index.md that links one file per topic brings in every topic file.
 function linked(cwd, tracked, docs) {
   const found = new Set();
-  for (const doc of docs) {
+  const queue = [...docs];
+  for (const doc of queue) {
     let text = '';
     try { text = fs.readFileSync(path.join(cwd, doc), 'utf8'); } catch { continue; }
     for (const m of text.matchAll(/\]\(<?([^)\s>#]+\.md)(?:#[^)\s>]*)?>?(?:\s+"[^"]*")?\)/g)) {
       if (/^[a-z][a-z0-9+.-]*:/i.test(m[1])) continue; // http:, mailto: and other URLs
       const p = path.posix.normalize(path.posix.join(path.posix.dirname(doc), decodeURIComponent(m[1])));
-      if (tracked.has(p)) found.add(p);
+      if (tracked.has(p) && !found.has(p) && !docs.includes(p)) { found.add(p); queue.push(p); }
     }
   }
   return found;

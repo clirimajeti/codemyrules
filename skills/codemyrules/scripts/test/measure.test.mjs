@@ -44,7 +44,7 @@ test('docTokens splits always-loaded from on-demand docs, following @imports fro
   });
 });
 
-test('docTokens counts Markdown files an agent doc links to as on-demand, one level deep', () => {
+test('docTokens counts Markdown files an agent doc links to as on-demand, through every level', () => {
   withRepo((dir) => {
     fs.mkdirSync(path.join(dir, 'docs'));
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'See [backend](docs/backend.md#rules), [web](https://x.dev/a.md) and [gone](docs/gone.md).'.padEnd(120, ' '));
@@ -53,8 +53,20 @@ test('docTokens counts Markdown files an agent doc links to as on-demand, one le
     fs.writeFileSync(path.join(dir, 'docs/api.md'), 'u'.repeat(400));
     git(dir, 'add', '-A');
     const r = docTokens(dir);
-    assert.deepEqual(r.files.map((f) => [f.path, f.loaded]), [['CLAUDE.md', 'always'], ['docs/backend.md', 'on-demand']]);
-    assert.deepEqual([r.always, r.onDemand], [30, 50]);
+    assert.deepEqual(r.files.map((f) => [f.path, f.loaded]), [['CLAUDE.md', 'always'], ['docs/backend.md', 'on-demand'], ['docs/deep.md', 'on-demand']]);
+    assert.deepEqual([r.always, r.onDemand], [30, 150]);
+  });
+});
+
+test('docTokens follows an index to one file per topic, and a link back does not loop', () => {
+  withRepo((dir) => {
+    fs.mkdirSync(path.join(dir, 'notes/decisions'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'Context: [index](notes/index.md)'.padEnd(40, ' '));
+    fs.writeFileSync(path.join(dir, 'notes/index.md'), '- [clock](decisions/clock.md)\n- [back](../CLAUDE.md)\n'.padEnd(80, ' '));
+    fs.writeFileSync(path.join(dir, 'notes/decisions/clock.md'), 'Never call Date.now() in domain code. [index](../index.md)'.padEnd(120, ' '));
+    git(dir, 'add', '-A');
+    const r = docTokens(dir);
+    assert.deepEqual(r.files.map((f) => [f.path, f.loaded]), [['CLAUDE.md', 'always'], ['notes/decisions/clock.md', 'on-demand'], ['notes/index.md', 'on-demand']]);
   });
 });
 
