@@ -87,6 +87,19 @@ test('non-repo dir exits 1', (t) => {
   assert.ok(r.stderr.includes(`codemyrules: ${dir} is not a git repository`), r.stderr);
 });
 
+test('a project in a subfolder of a repo installs, and git stays clean', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  const sub = path.join(dir, 'packages', 'web');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'b.txt'), 'x');
+  git('add', '.');
+  git('commit', '-q', '-m', 'sub');
+  const r = run(sub, cfg, '--apply');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(path.join(sub, '.claude/codemyrules/loop.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+});
+
 const goodLinter = { name: 'eslint', format: 'eslint', command: ['node', 'node_modules/eslint/bin/eslint.js', '--format', 'json', '{files}'], extensions: ['.ts'], tier: 'full' };
 
 test('validateLoopConfig accepts a valid config and an empty one', () => {

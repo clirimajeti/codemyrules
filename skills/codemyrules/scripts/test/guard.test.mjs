@@ -228,3 +228,16 @@ test('the script still runs when started through a symlinked path', () => {
     assert.equal(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'ask');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(holder, { recursive: true, force: true }); }
 });
+
+test('a guard that fails asks the user instead of letting the edit through', () => {
+  const dir = project();
+  try {
+    fs.mkdirSync(path.join(dir, 'src'));
+    const input = { tool_name: 'Write', tool_input: { file_path: path.join(dir, 'src'), content: 'x' } };
+    const r = spawnSync('node', [GUARD], { input: JSON.stringify(input), env: { ...process.env, CLAUDE_PROJECT_DIR: dir }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout).hookSpecificOutput;
+    assert.equal(out.permissionDecision, 'ask');
+    assert.match(out.permissionDecisionReason, /could not check this edit .*EISDIR/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

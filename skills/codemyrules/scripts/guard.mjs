@@ -22,7 +22,9 @@ export function decide(input, cwd) {
 // one hook call; returns the exit code
 export async function main(input) {
   const cwd = process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd();
-  const d = decide(input, cwd);
+  // a crash would exit 1, which Claude Code treats as a non-blocking error: the edit would go through unchecked
+  let d;
+  try { d = decide(input, cwd); } catch (e) { d = { reason: `could not check this edit (${e.message.split('\n')[0]}), so it needs your approval.` }; }
   if (d) {
     console.log(JSON.stringify({ hookSpecificOutput: {
       hookEventName: 'PreToolUse', permissionDecision: 'ask',

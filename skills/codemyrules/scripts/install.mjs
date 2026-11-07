@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { CONFIG_DIR, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
@@ -123,7 +123,9 @@ export function plan(projectDir, loopConfig, cli) {
 
   const ep = excludePath(projectDir);
   const old = readIf(ep) ?? '';
-  const missing = EXCLUDES.filter((l) => !old.split('\n').includes(l));
+  // info/exclude patterns are anchored at the repo root, so a project in a subfolder needs its path in front
+  const prefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: projectDir, encoding: 'utf8' }).trim();
+  const missing = EXCLUDES.map((l) => prefix + l).filter((l) => !old.split('\n').includes(l));
   if (missing.length) {
     const sep = old && !old.endsWith('\n') ? '\n' : '';
     items.push({ path: ep, action: readIf(ep) === null ? 'create' : 'update', preview: missing.join('\n'), content: old + sep + missing.join('\n') + '\n' });
@@ -211,7 +213,8 @@ export function main(args) {
     console.error('usage: install.mjs <project-dir> --config <loop.json> [--cli <cli.mjs>] [--apply]\n       install.mjs <project-dir> [--apply]   (reinstall, keeping the installed loop.json)');
     return 2;
   }
-  if (!fs.existsSync(path.join(projectDir, '.git'))) {
+  // any folder inside a work tree: a monorepo package is a project of its own
+  if (spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectDir, encoding: 'utf8' }).stdout?.trim() !== 'true') {
     console.error(`codemyrules: ${projectDir} is not a git repository`);
     return 1;
   }
