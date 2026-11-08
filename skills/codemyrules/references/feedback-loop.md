@@ -60,7 +60,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
   Prose files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are left out, so docs can name an ignore comment; a string literal in code that holds one still asks.
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files
-- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json` or to `.pi/extensions/codemyrules.js`
+- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js` or to `.opencode/plugins/codemyrules.js`
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -93,6 +93,21 @@ The extension re-exports `pi.mjs` from the pinned copy and runs the same checks 
 pi loads a project extension only once the project is trusted (`/trust`, or `-a` for one run).
 The file is git-excluded and protected like the rest of the setup.
 
+## opencode
+
+`codemyrules install <project-dir> --harness opencode` writes `.opencode/plugins/codemyrules.js`, an opencode 2 plugin; harnesses combine as with pi (`--harness claude,opencode`).
+The plugin re-exports `opencode.mjs` from the pinned copy and runs the same checks:
+- the `evaluate` permission hook on `edit`, which opencode asks for before every `edit`, `write` and `patch`: the guard.
+  A flagged edit becomes a permission question with the reason; with nobody to ask (`opencode run`), opencode refuses it.
+  `patch` is checked from the diffs on the permission request.
+- `execute.before` and `execute.after` on `shell`: the shell guard; its message to undo the change is added to the tool result.
+- `execute.after` on the edit tools: the fast tier; findings are added to the tool result.
+- the `experimental.idle` session hook: the full tier; findings go back once as a synthetic message, which starts one more turn.
+
+opencode gives plugins no way to show the user a notice, so what pi and Claude Code show only the user (setup problems, what is still failing after the one retry) is not shown.
+With `--auto`, opencode approves every question itself, the guard's included.
+opencode 1.x plugins cannot ask the user, so the loop needs opencode 2.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -107,6 +122,7 @@ Everything lives in the project, private to the user who installed it:
 | `.claude/codemyrules/turn-*.txt`, `shell-*.json`, `hash-cache.json` | runtime state: the files edited this turn, the snapshot around a shell command, and the hashes it reuses; left-overs older than a day are deleted |
 | `.claude/settings.local.json` | the six hook entries |
 | `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
+| `.opencode/plugins/codemyrules.js` | with `--harness opencode`: the opencode plugin, a one-line re-export of the pinned `opencode.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.

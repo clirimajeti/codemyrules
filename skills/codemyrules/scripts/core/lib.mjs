@@ -6,6 +6,8 @@ export const CONFIG_DIR = '.claude/codemyrules';
 export const SETTINGS_FILE = '.claude/settings.local.json';
 // the pi extension the installer writes; it loads the pi adapter from the pinned package
 export const PI_EXTENSION = '.pi/extensions/codemyrules.js';
+// the opencode plugin the installer writes; it loads the opencode adapter from the pinned package
+export const OPENCODE_PLUGIN = '.opencode/plugins/codemyrules.js';
 const CONFIG_FILE = 'loop.json';
 const LOG_FILE = 'failures.log';
 

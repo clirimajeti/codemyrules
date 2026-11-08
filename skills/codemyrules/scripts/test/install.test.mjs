@@ -367,6 +367,20 @@ test('--harness pi writes the pi extension instead of hooks; reinstall keeps it,
   assert.ok(!fs.existsSync(ext));
 });
 
+test('--harness opencode writes the opencode plugin; reinstall keeps it, status shows it, uninstall removes it', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'opencode', '--apply').status, 0);
+  const plugin = path.join(dir, '.opencode/plugins/codemyrules.js');
+  const target = /from '(.+)'/.exec(fs.readFileSync(plugin, 'utf8'))[1];
+  assert.ok(fs.existsSync(path.resolve(path.dirname(plugin), target)), `the plugin loads ${target}`);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+  assert.equal(spawnSync('node', [INSTALL, dir, '--cli', CLI], { encoding: 'utf8' }).stdout.trim(), 'nothing to change');
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /opencode: \.opencode\/plugins\/codemyrules\.js\n/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(plugin));
+});
+
 test('an unknown harness exits 2 and writes nothing', (t) => {
   const { dir, cfg } = tempRepo(t);
   const r = run(dir, cfg, '--harness', 'codex', '--apply');

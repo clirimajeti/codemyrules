@@ -55,7 +55,7 @@ npx skills add clirimajeti/backend-pattern-rules
 ```
 
 The rules work in every harness.
-The feedback loop runs in Claude Code and pi, see [Harness support](#harness-support).
+The feedback loop runs in Claude Code, pi and opencode, see [Harness support](#harness-support).
 
 </details>
 
@@ -70,6 +70,7 @@ npm install -g codemyrules
 codemyrules install . --config loop.json           # dry run: shows the plan
 codemyrules install . --config loop.json --apply   # installs the hooks
 codemyrules install . --config loop.json --harness pi --apply   # or the pi extension (claude,pi for both)
+codemyrules install . --config loop.json --harness opencode --apply   # or the opencode plugin
 ```
 
 `loop.json` names your linters per tier and the files the guard protects:
@@ -86,7 +87,7 @@ codemyrules install . --config loop.json --harness pi --apply   # or the pi exte
 
 The installer checks the config and refuses a broken one before it writes anything.
 Formats are `eslint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
-It needs Node 22 or later and Claude Code or pi.
+It needs Node 22 or later and Claude Code, pi or opencode 2.
 
 </details>
 
@@ -196,7 +197,7 @@ Three tiers, each silent when clean:
   A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
   A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
-  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
+  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`; in opencode, the plugin into `.opencode/plugins/codemyrules.js`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
 - **Pinned per project.**
@@ -213,11 +214,13 @@ Three tiers, each silent when clean:
 |---|---|---|
 | Claude Code | yes | yes, through hooks |
 | [pi](https://github.com/earendil-works/pi-coding-agent) | yes | yes, through a project extension (`codemyrules install . --harness pi --apply`) |
+| [opencode](https://opencode.ai) 2 | yes | yes, through a project plugin (`codemyrules install . --harness opencode --apply`) |
 | Codex, Copilot, Cursor and others | yes | not yet |
 
 In pi the guard asks through pi's own confirm dialog; in print or JSON mode, with nobody to ask, a flagged edit is refused.
 pi loads project extensions only in a trusted project (`/trust`, or `-a` for one run).
-Support for Codex, OpenCode and other harnesses is in progress.
+In opencode the guard asks through opencode's own permission prompt; in `opencode run`, with nobody to ask, a flagged edit is refused, and `--auto` approves it like any other question.
+Support for Codex and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 
 ## What It Leaves Alone
@@ -244,6 +247,7 @@ skills/codemyrules/
     ├── lint-edited.mjs         # Claude Code adapter: PostToolUse hook, fast tier
     ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
     ├── pi.mjs                  # pi adapter: extension with the guard, shell guard and both tiers
+    ├── opencode.mjs            # opencode adapter: plugin with the guard, shell guard and both tiers
     └── test/                   # node:test suites, and release-check.mjs
 evals/                          # claude plugin eval cases for the skill
 scripts/eval.sh                 # runs them, with the two sub-skill plugins staged next to it
