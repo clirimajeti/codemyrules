@@ -69,6 +69,7 @@ The skill installs it for you when you set up the loop, but you can also install
 npm install -g codemyrules
 codemyrules install . --config loop.json           # dry run: shows the plan
 codemyrules install . --config loop.json --apply   # installs the hooks
+codemyrules install . --config loop.json --harness pi --apply   # or the pi extension (claude,pi for both)
 ```
 
 `loop.json` names your linters per tier and the files the guard protects:
@@ -85,7 +86,7 @@ codemyrules install . --config loop.json --apply   # installs the hooks
 
 The installer checks the config and refuses a broken one before it writes anything.
 Formats are `eslint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
-It needs Node 22 or later and Claude Code.
+It needs Node 22 or later and Claude Code or pi.
 
 </details>
 
@@ -195,7 +196,7 @@ Three tiers, each silent when clean:
   A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
   A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
-  The hooks go into `.claude/settings.local.json`, the config into `.claude/codemyrules/`, and both into `.git/info/exclude`.
+  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
 - **Pinned per project.**
@@ -242,6 +243,7 @@ skills/codemyrules/
     ├── shell-guard.mjs         # Claude Code adapter: Pre- and PostToolUse hook on Bash and NotebookEdit
     ├── lint-edited.mjs         # Claude Code adapter: PostToolUse hook, fast tier
     ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
+    ├── pi.mjs                  # pi adapter: extension with the guard, shell guard and both tiers
     └── test/                   # node:test suites, and release-check.mjs
 evals/                          # claude plugin eval cases for the skill
 scripts/eval.sh                 # runs them, with the two sub-skill plugins staged next to it
