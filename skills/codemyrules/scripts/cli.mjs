@@ -7,7 +7,7 @@ import { readHookInput } from './core/lib.mjs';
 // the Claude Code adapter for each hook; other harnesses get their own names here
 const HOOKS = { guard: './guard.mjs', shell: './shell-guard.mjs', edited: './lint-edited.mjs', turn: './lint-turn.mjs' };
 const USAGE = `usage: codemyrules hook <${Object.keys(HOOKS).join('|')}>   run one hook, its input on stdin
-       codemyrules install <project-dir> [--config <loop.json>] [--apply]
+       codemyrules install <project-dir> [--config <loop.json>] [--harness claude,pi] [--apply]
        codemyrules uninstall <project-dir> [--apply]
        codemyrules status <project-dir>
        codemyrules measure baseline|report <project-dir>

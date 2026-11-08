@@ -349,3 +349,28 @@ test('validateLoopConfig checks a linter cwd and resolves its command and config
     assert.match(validateLoopConfig({ linters: [rootLinter], protect: [] }, dir).join('\n'), /is not installed/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('--harness pi writes the pi extension instead of hooks; reinstall keeps it, status shows it, uninstall removes it', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'pi', '--apply').status, 0);
+  const ext = path.join(dir, '.pi/extensions/codemyrules.js');
+  const target = /from '(.+)'/.exec(fs.readFileSync(ext, 'utf8'))[1];
+  assert.ok(fs.existsSync(path.resolve(path.dirname(ext), target)), `the extension loads ${target}`);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+  // a reinstall without --harness keeps pi and adds no Claude Code hooks
+  const re = spawnSync('node', [INSTALL, dir, '--cli', CLI, '--harness', 'pi,claude'], { encoding: 'utf8' });
+  assert.match(re.stdout, /settings\.local\.json/);
+  assert.equal(spawnSync('node', [INSTALL, dir, '--cli', CLI], { encoding: 'utf8' }).stdout.trim(), 'nothing to change');
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /pi: \.pi\/extensions\/codemyrules\.js\n/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(ext));
+});
+
+test('an unknown harness exits 2 and writes nothing', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const r = run(dir, cfg, '--harness', 'codex', '--apply');
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown harness codex/);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude')));
+});

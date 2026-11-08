@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { contentReason, protectReason } from './checks.mjs';
-import { CONFIG_DIR, SETTINGS_FILE, dirtyFiles, hashFiles, readBlob } from './lib.mjs';
+import { CONFIG_DIR, PI_EXTENSION, SETTINGS_FILE, dirtyFiles, hashFiles, readBlob } from './lib.mjs';
 import { recordEdited } from './loop.mjs';
 
 const snapshotPath = (cwd, id) => path.join(cwd, CONFIG_DIR, `shell-${String(id || 'default').replace(/[^\w-]/g, '_')}.json`);
@@ -14,7 +14,7 @@ const skipped = (e) => `codemyrules: shell guard skipped (${firstLine(e)})`;
 const ours = (f) => f.startsWith(`${CONFIG_DIR}/`);
 
 // The setup itself is git-excluded, so dirtyFiles never lists it: always snapshot it.
-// That is the settings file, loop.json, the pinned package the hooks run (pin.json and pkg/),
+// That is the settings file, the pi extension, loop.json, the pinned package the hooks run (pin.json and pkg/),
 // plus scripts copied by versions before the npm package (top level and core/).
 // Not recursive: a project may keep its linters' own node_modules in this folder, thousands of files to hash per command.
 const PKG_SCRIPTS = 'pkg/skills/codemyrules/scripts';
@@ -24,7 +24,7 @@ function setupFiles(cwd) {
     try { return fs.readdirSync(path.join(dir, sub)).filter((f) => f.endsWith('.mjs') || f.endsWith('.json')).map((f) => path.posix.join(sub, f)); } catch { return []; }
   };
   const pinned = ['pin.json', 'pkg/package.json', ...scripts(PKG_SCRIPTS), ...scripts(`${PKG_SCRIPTS}/core`)];
-  return [SETTINGS_FILE, `${CONFIG_DIR}/loop.json`, ...[...pinned, ...scripts('core')].map((f) => `${CONFIG_DIR}/${f}`),
+  return [SETTINGS_FILE, PI_EXTENSION, `${CONFIG_DIR}/loop.json`, ...[...pinned, ...scripts('core')].map((f) => `${CONFIG_DIR}/${f}`),
     ...scripts('.').filter((f) => f.endsWith('.mjs') || f === 'secret-patterns.json').map((f) => `${CONFIG_DIR}/${path.posix.normalize(f)}`)];
 }
 
@@ -86,7 +86,7 @@ export function takeSnapshot(cwd, id) {
 // Only a part's first word counts, so a mention in a comment or an argument is not the installer.
 const INSTALLER = /^(?:\w+=\S*\s+)*(?:(?:npx\s+(?:-y\s+)?)?codemyrules(?:@\S+)?(?:\.cmd)?\s+(?:un)?install\b|node\s+"?[^"\s]*install\.mjs"?(?:\s|$))/;
 export const runsInstaller = (command) => String(command ?? '').split(/;|&&|\|\||\||\n/).some((part) => INSTALLER.test(part.trim()));
-const isSetup = (f) => f === SETTINGS_FILE || ours(f);
+const isSetup = (f) => f === SETTINGS_FILE || f === PI_EXTENSION || ours(f);
 
 // after the tool runs; null without a snapshot, else { reasons, notes, installed }. The changed files are recorded for the end-of-turn check.
 // command: the shell command; when it runs the codemyrules installer, its changes to the setup are listed in `installed`

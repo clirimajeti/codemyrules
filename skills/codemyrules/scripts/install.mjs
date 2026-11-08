@@ -3,11 +3,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { CONFIG_DIR, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
+import { CONFIG_DIR, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
 const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
-const EXCLUDES = [`${CONFIG_DIR}/`, SETTINGS_FILE];
+const EXCLUDES = { claude: [`${CONFIG_DIR}/`, SETTINGS_FILE], pi: [`${CONFIG_DIR}/`, PI_EXTENSION] };
+export const HARNESSES = Object.keys(EXCLUDES);
 // where the CLI sits inside the npm package
 const SCRIPTS = 'skills/codemyrules/scripts';
 const CLI_IN_PACKAGE = `codemyrules/${SCRIPTS}/cli.mjs`;
@@ -69,6 +70,18 @@ const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 const packageRoot = (cli) => path.resolve(path.dirname(cli), '../../..');
 export const pinnedCli = (projectDir) => path.join(projectDir, CONFIG_DIR, PIN_DIR, SCRIPTS, 'cli.mjs');
 
+// pi loads every .js in .pi/extensions; this one re-exports the adapter from the pinned copy.
+// A relative path, so the extension keeps working when the project folder moves.
+const PI_ADAPTER = path.posix.relative(path.posix.dirname(PI_EXTENSION), `${CONFIG_DIR}/${PIN_DIR}/${SCRIPTS}/pi.mjs`);
+export const piExtension = () => `// codemyrules lint feedback loop for pi, written by \`codemyrules install\`; it runs the project's pinned copy.\nexport { default } from '${PI_ADAPTER}';\n`;
+const isOurPiExtension = (p) => readIf(p)?.includes('codemyrules') ?? false;
+
+// the harnesses a project has the loop for: codemyrules' hooks in the Claude Code settings, the pi extension
+export function installedHarnesses(projectDir) {
+  const hooks = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []);
+  return [...(hooks.some((h) => ours(h.command)) ? ['claude'] : []), ...(isOurPiExtension(path.join(projectDir, PI_EXTENSION)) ? ['pi'] : [])];
+}
+
 // what the hooks need from the package, as in its package.json "files": the scripts and core/, not the tests
 export function packageFiles(root) {
   const list = (sub, keep) => { try { return fs.readdirSync(path.join(root, sub)).filter(keep).map((f) => path.posix.join(sub, f)); } catch { return []; } };
@@ -91,7 +104,7 @@ function excludePath(projectDir) {
   return path.resolve(projectDir, p);
 }
 
-export function plan(projectDir, loopConfig, cli) {
+export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
   const items = [];
   const add = (p, content, preview = content) => {
     const old = readIf(p);
@@ -117,15 +130,18 @@ export function plan(projectDir, loopConfig, cli) {
   add(path.join(dest, PIN_FILE), JSON.stringify(pin, null, 2) + '\n');
   add(path.join(dest, 'loop.json'), JSON.stringify(loopConfig, null, 2) + '\n');
 
-  const sp = path.join(projectDir, SETTINGS_FILE);
-  const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(pinnedCli(projectDir)));
-  add(sp, JSON.stringify(settings, null, 2) + '\n');
+  if (harnesses.includes('claude')) {
+    const sp = path.join(projectDir, SETTINGS_FILE);
+    const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(pinnedCli(projectDir)));
+    add(sp, JSON.stringify(settings, null, 2) + '\n');
+  }
+  if (harnesses.includes('pi')) add(path.join(projectDir, PI_EXTENSION), piExtension());
 
   const ep = excludePath(projectDir);
   const old = readIf(ep) ?? '';
   // info/exclude patterns are anchored at the repo root, so a project in a subfolder needs its path in front
   const prefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: projectDir, encoding: 'utf8' }).trim();
-  const missing = EXCLUDES.map((l) => prefix + l).filter((l) => !old.split('\n').includes(l));
+  const missing = [...new Set(harnesses.flatMap((h) => EXCLUDES[h]))].map((l) => prefix + l).filter((l) => !old.split('\n').includes(l));
   if (missing.length) {
     const sep = old && !old.endsWith('\n') ? '\n' : '';
     items.push({ path: ep, action: readIf(ep) === null ? 'create' : 'update', preview: missing.join('\n'), content: old + sep + missing.join('\n') + '\n' });
@@ -203,14 +219,14 @@ export function validateLoopConfig(cfg, projectDir) {
 export function main(args) {
   const apply = args.includes('--apply');
   const ci = args.indexOf('--config');
-  const values = new Set(['--config', '--cli'].map((f) => args.indexOf(f)).filter((i) => i >= 0).map((i) => i + 1));
+  const values = new Set(['--config', '--cli', '--harness'].map((f) => args.indexOf(f)).filter((i) => i >= 0).map((i) => i + 1));
   const dir = args.find((a, i) => !a.startsWith('--') && !values.has(i));
   const projectDir = dir && path.resolve(dir);
   // without --config, a reinstall with the project's installed loop.json
   const installed = projectDir && path.join(projectDir, CONFIG_DIR, 'loop.json');
   const cfgPath = ci >= 0 ? args[ci + 1] : installed && fs.existsSync(installed) ? installed : undefined;
   if (!projectDir || !cfgPath) {
-    console.error('usage: install.mjs <project-dir> --config <loop.json> [--cli <cli.mjs>] [--apply]\n       install.mjs <project-dir> [--apply]   (reinstall, keeping the installed loop.json)');
+    console.error(`usage: install.mjs <project-dir> --config <loop.json> [--harness ${HARNESSES.join(',')}] [--cli <cli.mjs>] [--apply]\n       install.mjs <project-dir> [--apply]   (reinstall, keeping the installed loop.json and harnesses)`);
     return 2;
   }
   // any folder inside a work tree: a monorepo package is a project of its own
@@ -230,13 +246,22 @@ export function main(args) {
     console.error(`codemyrules: invalid loop config ${cfgPath}, nothing written:\n${errs.map((e) => `  - ${e}`).join('\n')}`);
     return 1;
   }
+  // without --harness, the harnesses already installed, or Claude Code on a first install
+  const hi = args.indexOf('--harness');
+  const harnesses = hi >= 0 ? [...new Set(String(args[hi + 1] ?? '').split(',').map((h) => h.trim()).filter(Boolean))] : installedHarnesses(projectDir);
+  if (!harnesses.length) harnesses.push('claude');
+  const unknown = harnesses.filter((h) => !HARNESSES.includes(h));
+  if (unknown.length || (hi >= 0 && !args[hi + 1])) {
+    console.error(`codemyrules: unknown harness ${unknown.join(', ') || '(none given)'}, expected a comma-separated list of ${HARNESSES.join(', ')}`);
+    return 2;
+  }
   const li = args.indexOf('--cli');
   const cli = li >= 0 ? path.resolve(args[li + 1]) : findCli();
   if (!cli) {
     console.error('codemyrules: the hooks run the codemyrules npm package, which is not installed globally. Install it with: npm install -g codemyrules');
     return 1;
   }
-  return carryOut(plan(projectDir, cfg, cli), apply);
+  return carryOut(plan(projectDir, cfg, cli, harnesses), apply);
 }
 
 // print the plan, and with apply carry it out
@@ -283,6 +308,8 @@ export function uninstall(args) {
     const count = (s) => Object.values(s.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []).length;
     if (count(out) !== count(settings)) items.push({ path: sp, action: 'update', preview: `removes ${count(settings) - count(out)} codemyrules hook entries, keeps the rest`, content });
   }
+  const pe = path.join(projectDir, PI_EXTENSION);
+  if (isOurPiExtension(pe)) items.push({ path: pe, action: 'delete', preview: 'the pi extension', content: null });
   return carryOut(items, args.includes('--apply'));
 }
 
@@ -295,7 +322,8 @@ export function status(args) {
   const dest = path.join(projectDir, CONFIG_DIR);
   const commands = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat()
     .flatMap((e) => e?.hooks ?? []).map((h) => h.command).filter(ours);
-  if (!commands.length && !fs.existsSync(path.join(dest, 'loop.json'))) {
+  const pi = isOurPiExtension(path.join(projectDir, PI_EXTENSION));
+  if (!commands.length && !pi && !fs.existsSync(path.join(dest, 'loop.json'))) {
     console.log(`not installed in ${projectDir}`);
     return 0;
   }
@@ -308,6 +336,7 @@ export function status(args) {
     for (const t of targets) console.log(`  ${missing.includes(t) ? 'missing' : 'runs'}: ${t}`);
     if (copyHooks) console.log(`  ${copyHooks} run copies from before the npm package; reinstall to replace them`);
   }
+  if (pi) console.log(`pi: ${PI_EXTENSION}${fs.existsSync(path.join(dest, PIN_DIR, SCRIPTS, 'pi.mjs')) ? '' : ', but the pinned copy has no pi adapter; reinstall'}`);
   const pinned = pinnedCli(projectDir);
   if (targets.some((t) => t !== pinned)) console.log(`  not pinned: every npm update of what they run reaches this project. Reinstall to pin a copy: codemyrules install ${projectDir} --apply`);
   const pin = readJson(path.join(dest, PIN_FILE));

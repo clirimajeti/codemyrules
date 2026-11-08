@@ -55,7 +55,7 @@ npx skills add clirimajeti/backend-pattern-rules
 ```
 
 The rules work in every harness.
-The feedback loop is offered only in Claude Code for now, see [Harness support](#harness-support).
+The feedback loop runs in Claude Code and pi, see [Harness support](#harness-support).
 
 </details>
 
@@ -210,11 +210,13 @@ Three tiers, each silent when clean:
 
 | | Rules and doc cleanup | Feedback loop |
 |---|---|---|
-| Claude Code | yes | yes |
+| Claude Code | yes | yes, through hooks |
+| [pi](https://github.com/earendil-works/pi-coding-agent) | yes | yes, through a project extension (`codemyrules install . --harness pi --apply`) |
 | Codex, Copilot, Cursor and others | yes | not yet |
 
-Today, the feedback loop relies on Claude Code hooks.
-Support for Codex, pi, OpenCode and other harnesses is in progress.
+In pi the guard asks through pi's own confirm dialog; in print or JSON mode, with nobody to ask, a flagged edit is refused.
+pi loads project extensions only in a trusted project (`/trust`, or `-a` for one run).
+Support for Codex, OpenCode and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 
 ## What It Leaves Alone

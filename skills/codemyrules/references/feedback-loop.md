@@ -60,7 +60,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
   Prose files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are left out, so docs can name an ignore comment; a string literal in code that holds one still asks.
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files
-- an edit to `.claude/codemyrules/` itself or to `.claude/settings.local.json`
+- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json` or to `.pi/extensions/codemyrules.js`
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -79,6 +79,20 @@ A command that runs the codemyrules installer (a part of it starting with `codem
 A file counts as protected when it was protected before the command or after it, so rewriting `loop.json` and editing a lint config in one command still blocks.
 CI, running the project's own lint setup, stays the safety net.
 
+## pi
+
+`codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
+A reinstall without `--harness` keeps the harnesses already installed.
+The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
+- `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
+  Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.
+- `tool_call` and `tool_result` on `bash`: the shell guard; its message to undo the change is added to the tool result.
+- `tool_result` on `edit` and `write`: the fast tier; findings are added to the tool result.
+- `agent_before_settle`: the full tier; findings go back as a hidden message with one more turn, and after that one retry the user sees what is still failing.
+
+pi loads a project extension only once the project is trusted (`/trust`, or `-a` for one run).
+The file is git-excluded and protected like the rest of the setup.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -92,6 +106,7 @@ Everything lives in the project, private to the user who installed it:
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
 | `.claude/codemyrules/turn-*.txt`, `shell-*.json`, `hash-cache.json` | runtime state: the files edited this turn, the snapshot around a shell command, and the hashes it reuses; left-overs older than a day are deleted |
 | `.claude/settings.local.json` | the six hook entries |
+| `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
