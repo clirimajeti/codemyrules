@@ -101,6 +101,7 @@ codemyrules install . --config loop.json --apply   # installs it
 ```
 
 Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin.
+A `.claude/` folder that holds only codemyrules' own setup does not count.
 With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, or a comma-separated list such as `claude,pi` for several.
 
 `loop.json` names your linters per tier and the files the guard protects:

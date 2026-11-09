@@ -88,8 +88,11 @@ export function protectReason(cwd, rel, alsoProtect = []) {
 
 // why changing a file from before() to after() needs the user, or null; the thunks read whole files only when needed.
 // oldTexts/newTexts are the edited pieces (one pair per edit), by default the whole file.
+// The new text is looked at first: without a suppression in it nothing was added, and before() is not called.
+// After a shell command before() is one git call per changed file, 8 s for 1500 files.
 export function contentReason(rel, before, after, oldTexts, newTexts) {
-  if (addsSuppression(rel, oldTexts ?? [before()], newTexts ?? [after()])) return `this edit adds or changes a lint suppression in ${rel}.`;
+  const added = newTexts ?? [after()];
+  if (added.some((t) => SUPPRESSION.test(t ?? '')) && addsSuppression(rel, oldTexts ?? [before()], added)) return `this edit adds or changes a lint suppression in ${rel}.`;
   if (EMBEDS_LINT(rel) && lintSettings(rel, before()) !== lintSettings(rel, after())) return `this edit changes lint settings in ${rel}.`;
   return null;
 }

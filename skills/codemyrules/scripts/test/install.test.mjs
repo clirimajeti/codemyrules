@@ -410,10 +410,34 @@ test('without --harness a first install defaults to Claude Code and says so', (t
 test('without --harness a first install in a project set up for two harnesses exits 2 and writes nothing', (t) => {
   const { dir, cfg } = tempRepo(t);
   fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/settings.json'), '{}');
   fs.mkdirSync(path.join(dir, '.pi'));
   const r = run(dir, cfg, '--apply');
   assert.equal(r.status, 2);
   assert.match(r.stderr, /setup for claude and pi; name the harness/);
   assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
   assert.ok(!fs.existsSync(path.join(dir, '.pi/extensions')));
+});
+
+test('codemyrules own .claude folder is no sign of Claude Code: install, uninstall, install works in a pi project', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.pi'));
+  assert.match(run(dir, cfg, '--apply').stdout, /harness: pi \(found \.pi/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude')), 'uninstall leaves no empty .claude behind');
+  const again = run(dir, cfg, '--apply');
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /harness: pi \(found \.pi/);
+  // a setup folder left behind without the extension (a half-removed install) does not count either
+  fs.rmSync(path.join(dir, '.pi/extensions/codemyrules.js'));
+  assert.match(run(dir, cfg, '--apply').stdout, /harness: pi \(found \.pi/);
+});
+
+test('uninstall keeps a .claude folder that holds anything else', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/CLAUDE.md'), 'x');
+  assert.equal(run(dir, cfg, '--harness', 'pi', '--apply').status, 0);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/CLAUDE.md')));
 });

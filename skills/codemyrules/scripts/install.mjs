@@ -91,8 +91,14 @@ export function installedHarnesses(projectDir) {
 
 // the harnesses a project shows signs of using, from their project folders and config files
 const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'] };
+// codemyrules keeps its own folder in .claude for every harness, so .claude counts only when it holds something else
+const hasMarker = (projectDir, m) => {
+  const p = path.join(projectDir, m);
+  if (m !== path.dirname(CONFIG_DIR)) return fs.existsSync(p);
+  try { return fs.readdirSync(p).some((n) => n !== path.basename(CONFIG_DIR)); } catch { return false; }
+};
 export function detectedHarnesses(projectDir) {
-  return HARNESSES.filter((h) => MARKERS[h].some((m) => fs.existsSync(path.join(projectDir, m))));
+  return HARNESSES.filter((h) => MARKERS[h].some((m) => hasMarker(projectDir, m)));
 }
 
 // what the hooks need from the package, as in its package.json "files": the scripts and core/, not the tests
@@ -269,7 +275,7 @@ export function main(args) {
       return 2;
     }
     harnesses.push(found[0] ?? 'claude');
-    console.log(`harness: ${harnesses[0]} (${found.length ? `found ${MARKERS[found[0]].find((m) => fs.existsSync(path.join(projectDir, m)))}` : 'no harness folder found, defaulting to Claude Code'}; pass --harness ${HARNESSES.join('|')} to choose)\n`);
+    console.log(`harness: ${harnesses[0]} (${found.length ? `found ${MARKERS[found[0]].find((m) => hasMarker(projectDir, m))}` : 'no harness folder found, defaulting to Claude Code'}; pass --harness ${HARNESSES.join('|')} to choose)\n`);
   }
   const unknown = harnesses.filter((h) => !HARNESSES.includes(h));
   if (unknown.length || (hi >= 0 && !args[hi + 1])) {
@@ -330,7 +336,11 @@ export function uninstall(args) {
     if (count(out) !== count(settings)) items.push({ path: sp, action: 'update', preview: `removes ${count(settings) - count(out)} codemyrules hook entries, keeps the rest`, content });
   }
   for (const [h, x] of Object.entries(EXTENSIONS)) if (hasExtension(projectDir, h)) items.push({ path: path.join(projectDir, x.file), action: 'delete', preview: x.what, content: null });
-  return carryOut(items, args.includes('--apply'));
+  const apply = args.includes('--apply');
+  const code = carryOut(items, apply);
+  // a .claude folder that held nothing but the setup goes too; rmdir leaves a folder with anything else in it alone
+  if (apply) try { fs.rmdirSync(path.dirname(dest)); } catch { /* not empty, or not there */ }
+  return code;
 }
 
 // what is installed in a project, whether its hooks can run, and what failed lately

@@ -184,9 +184,16 @@ export function runLinters(cwd, linters, files, budget = BUDGET_MS.edit) {
   return { findings, notes };
 }
 
+// a finding is one line of at most this many characters: 20 findings with a long diagnostic each would flood the agent's context
+const MESSAGE_MAX = 1000;
+const oneLine = (message) => {
+  const line = String(message ?? '').trim().split('\n')[0];
+  return line.length > MESSAGE_MAX ? `${line.slice(0, MESSAGE_MAX)}…` : line;
+};
+
 export function formatFindings(findings, limit = 20) {
   if (!findings.length) return '';
-  const out = findings.slice(0, limit).map((f) => `${f.file}:${f.line} ${f.ruleId} ${f.message}`);
+  const out = findings.slice(0, limit).map((f) => `${f.file}:${f.line} ${f.ruleId} ${oneLine(f.message)}`);
   if (findings.length > limit) out.push(`…and ${findings.length - limit} more`);
   out.push(FOOTER);
   return out.join('\n');

@@ -27,6 +27,7 @@ Credential files (`.env*`, `.envrc`, SSH keys, `*.pem` / `*.key`, `.aws/`, `.kub
 - **On changed lines only.** A finding blocks only when its line was added or changed since `HEAD`, from the `git diff` hunks; an untracked file counts as changed throughout.
   Older hits elsewhere in the same file are ignored, so the agent never fixes unrelated legacy code.
 - **At most 20 findings** reach the agent, plus `…and N more`, so one bad turn cannot flood its context.
+  Each finding is one line: the first line of the linter's message, cut at 1000 characters.
 
 A blocked check returns the findings to the agent with exit code 2, each as `file:line ruleId message`, followed by one instruction: fix them; when a case seems legitimate, ask the user and propose a change to the rule (an exclusion or a narrower pattern, plus a test case), not to the code; never add an ignore comment or change lint config on its own; with nobody to ask, finish the rest of the task and list them in the final report.
 That instruction arrives only when a rule fails, so it needs no line in CLAUDE.md.
@@ -155,6 +156,7 @@ A rule that never fails after its doc lines were removed has paid off.
 ## Uninstall
 
 `codemyrules uninstall <project-dir>` shows what it removes, and with `--apply` removes it: `.claude/codemyrules/` (with the failure log and the baseline) and codemyrules' own entries in `.claude/settings.local.json`, keeping every other hook.
+A `.claude/` folder that held nothing else is removed too.
 When no other project uses it, `npm uninstall -g codemyrules` removes the package.
 The two lines in `.git/info/exclude` are harmless and can stay or go.
 
