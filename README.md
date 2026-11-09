@@ -288,7 +288,10 @@ Run the tests with `npm test`.
 Before a release, `npm run release-check` packs the package, installs it into a throwaway npm prefix and drives a few headless Claude Code sessions (Haiku) against it in a throwaway repo; it needs `claude` logged in and takes about a minute.
 To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project pins a copy of it (reinstall after each change).
 `npm run eval` runs the skill's eval cases with `claude plugin eval` (pass `-- --runs 3` and the like through); it copies the two sibling sub-skill checkouts into `.eval-deps/` first, because an eval loads no other plugins.
-A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match), runs `npm publish`, and only then pushes, so the skill never names an unpublished version.
+A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match) and pushes that commit.
+Once the test workflow is green on Linux, macOS and Windows, `npm publish` follows (it runs `npm test` first and stops when a test fails), and then the tag: `git tag v<version> && git push origin v<version>`.
+For the minute between the push and the publish the skill names a version that npm does not have yet.
+
 ## Flowchart
 
 ```mermaid
