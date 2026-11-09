@@ -46,6 +46,35 @@ The skill is model-invoked, so there is no command to remember:
 - "Set up lint feedback for agents in this repo."
 
 <details>
+<summary><strong>pi</strong></summary>
+
+```bash
+npx skills add clirimajeti/codemyrules -a pi
+npx skills add clirimajeti/eslint-pattern-rules -a pi
+npx skills add clirimajeti/backend-pattern-rules -a pi
+```
+
+Then ask in your own words, as above.
+The skill installs the feedback loop as a pi extension in `.pi/extensions/`.
+pi loads it only in a trusted project: run `/trust` once, or start pi with `-a`.
+
+</details>
+
+<details>
+<summary><strong>opencode</strong></summary>
+
+```bash
+npx skills add clirimajeti/codemyrules -a opencode
+npx skills add clirimajeti/eslint-pattern-rules -a opencode
+npx skills add clirimajeti/backend-pattern-rules -a opencode
+```
+
+Then ask in your own words, as above.
+The skill installs the feedback loop as an opencode plugin in `.opencode/plugins/`; it needs opencode 2.
+
+</details>
+
+<details>
 <summary><strong>Codex, Copilot, Cursor and others</strong></summary>
 
 ```bash
@@ -54,8 +83,8 @@ npx skills add clirimajeti/eslint-pattern-rules
 npx skills add clirimajeti/backend-pattern-rules
 ```
 
-The rules work in every harness.
-The feedback loop runs in Claude Code, pi and opencode, see [Harness support](#harness-support).
+The rules and the doc cleanup work in every harness.
+The feedback loop runs only in Claude Code, pi and opencode, see [Harness support](#harness-support).
 
 </details>
 
@@ -67,11 +96,12 @@ The skill installs it for you when you set up the loop, but you can also install
 
 ```bash
 npm install -g codemyrules
-codemyrules install . --config loop.json           # dry run: shows the plan
-codemyrules install . --config loop.json --apply   # installs the hooks
-codemyrules install . --config loop.json --harness pi --apply   # or the pi extension (claude,pi for both)
-codemyrules install . --config loop.json --harness opencode --apply   # or the opencode plugin
+codemyrules install . --config loop.json           # dry run: shows the plan and the harness it picked
+codemyrules install . --config loop.json --apply   # installs it
 ```
+
+Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin.
+With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, or a comma-separated list such as `claude,pi` for several.
 
 `loop.json` names your linters per tier and the files the guard protects:
 

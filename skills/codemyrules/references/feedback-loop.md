@@ -83,6 +83,7 @@ CI, running the project's own lint setup, stays the safety net.
 
 `codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
 A reinstall without `--harness` keeps the harnesses already installed.
+A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, or `.opencode/` or `opencode.json`), Claude Code when it has none, and refuses when it has more than one.
 The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
 - `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
   Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.

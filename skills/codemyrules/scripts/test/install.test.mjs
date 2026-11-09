@@ -388,3 +388,32 @@ test('an unknown harness exits 2 and writes nothing', (t) => {
   assert.match(r.stderr, /unknown harness codex/);
   assert.ok(!fs.existsSync(path.join(dir, '.claude')));
 });
+
+test('without --harness a first install picks the harness the project has a folder for', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.opencode'));
+  const r = run(dir, cfg, '--apply');
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /harness: opencode \(found \.opencode/);
+  assert.ok(fs.existsSync(path.join(dir, '.opencode/plugins/codemyrules.js')));
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+});
+
+test('without --harness a first install defaults to Claude Code and says so', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const r = run(dir, cfg, '--apply');
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /harness: claude \(no harness folder found/);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+});
+
+test('without --harness a first install in a project set up for two harnesses exits 2 and writes nothing', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.mkdirSync(path.join(dir, '.pi'));
+  const r = run(dir, cfg, '--apply');
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /setup for claude and pi; name the harness/);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
+  assert.ok(!fs.existsSync(path.join(dir, '.pi/extensions')));
+});

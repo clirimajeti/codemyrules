@@ -89,6 +89,12 @@ export function installedHarnesses(projectDir) {
   return [...(hooks.some((h) => ours(h.command)) ? ['claude'] : []), ...Object.keys(EXTENSIONS).filter((h) => hasExtension(projectDir, h))];
 }
 
+// the harnesses a project shows signs of using, from their project folders and config files
+const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'] };
+export function detectedHarnesses(projectDir) {
+  return HARNESSES.filter((h) => MARKERS[h].some((m) => fs.existsSync(path.join(projectDir, m))));
+}
+
 // what the hooks need from the package, as in its package.json "files": the scripts and core/, not the tests
 export function packageFiles(root) {
   const list = (sub, keep) => { try { return fs.readdirSync(path.join(root, sub)).filter(keep).map((f) => path.posix.join(sub, f)); } catch { return []; } };
@@ -253,10 +259,18 @@ export function main(args) {
     console.error(`codemyrules: invalid loop config ${cfgPath}, nothing written:\n${errs.map((e) => `  - ${e}`).join('\n')}`);
     return 1;
   }
-  // without --harness, the harnesses already installed, or Claude Code on a first install
+  // without --harness: the harnesses already installed, else the one harness the project has a folder for, else Claude Code
   const hi = args.indexOf('--harness');
   const harnesses = hi >= 0 ? [...new Set(String(args[hi + 1] ?? '').split(',').map((h) => h.trim()).filter(Boolean))] : installedHarnesses(projectDir);
-  if (!harnesses.length) harnesses.push('claude');
+  if (!harnesses.length) {
+    const found = detectedHarnesses(projectDir);
+    if (found.length > 1) {
+      console.error(`codemyrules: this project has setup for ${found.join(' and ')}; name the harness to install for: --harness ${found.join('|')} (or --harness ${found.join(',')} for all)`);
+      return 2;
+    }
+    harnesses.push(found[0] ?? 'claude');
+    console.log(`harness: ${harnesses[0]} (${found.length ? `found ${MARKERS[found[0]].find((m) => fs.existsSync(path.join(projectDir, m)))}` : 'no harness folder found, defaulting to Claude Code'}; pass --harness ${HARNESSES.join('|')} to choose)\n`);
+  }
   const unknown = harnesses.filter((h) => !HARNESSES.includes(h));
   if (unknown.length || (hi >= 0 && !args[hi + 1])) {
     console.error(`codemyrules: unknown harness ${unknown.join(', ') || '(none given)'}, expected a comma-separated list of ${HARNESSES.join(', ')}`);
