@@ -8,6 +8,10 @@ export const SETTINGS_FILE = '.claude/settings.local.json';
 export const PI_EXTENSION = '.pi/extensions/codemyrules.js';
 // the opencode plugin the installer writes; it loads the opencode adapter from the pinned package
 export const OPENCODE_PLUGIN = '.opencode/plugins/codemyrules.js';
+// the GitHub Copilot CLI hooks file the installer writes; its hooks run the pinned package's copilot adapter
+export const COPILOT_HOOKS = '.github/hooks/codemyrules.json';
+// every file outside CONFIG_DIR the installer writes for a harness
+export const HARNESS_FILES = [SETTINGS_FILE, PI_EXTENSION, OPENCODE_PLUGIN, COPILOT_HOOKS];
 const CONFIG_FILE = 'loop.json';
 const LOG_FILE = 'failures.log';
 

@@ -381,6 +381,36 @@ test('--harness opencode writes the opencode plugin; reinstall keeps it, status 
   assert.ok(!fs.existsSync(plugin));
 });
 
+test('--harness copilot writes the Copilot hooks file; reinstall keeps it, status shows it, uninstall removes it', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'copilot', '--apply').status, 0);
+  const file = path.join(dir, '.github/hooks/codemyrules.json');
+  const { version, hooks } = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(version, 1);
+  assert.deepEqual(Object.keys(hooks), ['preToolUse', 'postToolUse', 'postToolUseFailure', 'agentStop']);
+  for (const [event, [h]] of Object.entries(hooks)) {
+    assert.equal(h.cwd, dir);
+    const [, cli, ev] = /^node "(.+)" hook copilot (\w+)$/.exec(h.command);
+    assert.equal(ev, event);
+    assert.ok(fs.existsSync(path.join(path.dirname(cli), 'copilot.mjs')), `the hooks run ${cli}`);
+  }
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+  assert.equal(spawnSync('node', [INSTALL, dir, '--cli', CLI], { encoding: 'utf8' }).stdout.trim(), 'nothing to change');
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /copilot: \.github\/hooks\/codemyrules\.json\n/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(path.join(dir, '.github/hooks')), 'uninstall leaves no empty .github/hooks behind');
+});
+
+test('without --harness a first install picks Copilot from .github/copilot-instructions.md', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.github'));
+  fs.writeFileSync(path.join(dir, '.github/copilot-instructions.md'), 'x');
+  const r = run(dir, cfg, '--apply');
+  assert.match(r.stdout, /harness: copilot \(found \.github\/copilot-instructions\.md/);
+  assert.ok(fs.existsSync(path.join(dir, '.github/hooks/codemyrules.json')));
+});
+
 test('an unknown harness exits 2 and writes nothing', (t) => {
   const { dir, cfg } = tempRepo(t);
   const r = run(dir, cfg, '--harness', 'codex', '--apply');

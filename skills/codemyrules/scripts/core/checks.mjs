@@ -2,7 +2,7 @@
 // and lint settings inside shared build files. Each returns a reason the user must approve, or null.
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG_DIR, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isSecretFile, matchesPattern, readLoopConfig, realPath } from './lib.mjs';
+import { CONFIG_DIR, HARNESS_FILES, isSecretFile, matchesPattern, readLoopConfig, realPath } from './lib.mjs';
 
 export const SUPPRESSION = new RegExp([
   /eslint-disable/, /\/[*/]\s*eslint\s+[@\w/-]+\s*:/, // inline ESLint config: /* eslint no-console: "off" */
@@ -75,7 +75,7 @@ export function projectPath(cwd, file) {
 
 // alsoProtect: patterns that count too, such as the protect list from before a command that may have rewritten loop.json
 export function protectReason(cwd, rel, alsoProtect = []) {
-  if (rel.startsWith(`${CONFIG_DIR}/`) || rel === SETTINGS_FILE || rel === PI_EXTENSION || rel === OPENCODE_PLUGIN) return `${rel} is part of the codemyrules setup.`;
+  if (rel.startsWith(`${CONFIG_DIR}/`) || HARNESS_FILES.includes(rel)) return `${rel} is part of the codemyrules setup.`;
   let protect;
   try {
     protect = readLoopConfig(cwd).protect;

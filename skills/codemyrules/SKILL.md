@@ -119,10 +119,11 @@ Done when every picked candidate is built and verified, or reported as not built
 The loop runs the project's lint setup in Claude Code hooks: a guard before each edit and around each shell command, a fast check after each edit, and a full check at the end of each turn.
 It is private (`.claude/settings.local.json` and `.git/info/exclude`) and silent when clean.
 [`references/feedback-loop.md`](references/feedback-loop.md) explains it; read it before offering.
-Offer it only when you are running in Claude Code, pi or opencode 2, and always pass the harness you are running in to the install command below: `--harness claude`, `--harness pi` or `--harness opencode`.
+Offer it only when you are running in Claude Code, pi, opencode 2 or the GitHub Copilot CLI, and always pass the harness you are running in to the install command below: `--harness claude`, `--harness pi`, `--harness opencode` or `--harness copilot`.
 In pi, the guard asks through pi's confirm dialog, and pi loads the extension only in a trusted project, so say that in the report.
 In opencode, the guard asks through opencode's permission prompt, and `--auto` approves it, so say that in the report.
-In any other harness, skip this step and the baseline, and say in the report that the feedback loop needs Claude Code, pi or opencode 2 and is not available here.
+In the Copilot CLI, the guard asks through Copilot's permission prompt, and in autopilot mode Copilot refuses a flagged edit, so say that in the report.
+In any other harness, skip this step and the baseline, and say in the report that the feedback loop needs Claude Code, pi, opencode 2 or the GitHub Copilot CLI and is not available here.
 
 Draft the config in a temporary file outside the project, as `loop.json`:
 

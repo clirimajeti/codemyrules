@@ -61,7 +61,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
   Prose files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are left out, so docs can name an ignore comment; a string literal in code that holds one still asks.
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files
-- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js` or to `.opencode/plugins/codemyrules.js`
+- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js`, to `.opencode/plugins/codemyrules.js` or to `.github/hooks/codemyrules.json`
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -84,7 +84,7 @@ CI, running the project's own lint setup, stays the safety net.
 
 `codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
 A reinstall without `--harness` keeps the harnesses already installed.
-A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, or `.opencode/` or `opencode.json`), Claude Code when it has none, and refuses when it has more than one.
+A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`), Claude Code when it has none, and refuses when it has more than one.
 The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
 - `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
   Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.
@@ -110,6 +110,20 @@ opencode gives plugins no way to show the user a notice, so what pi and Claude C
 With `--auto`, opencode approves every question itself, the guard's included.
 opencode 1.x plugins cannot ask the user, so the loop needs opencode 2.
 
+## GitHub Copilot CLI
+
+`codemyrules install <project-dir> --harness copilot` writes `.github/hooks/codemyrules.json`, Copilot CLI hooks in the camelCase format; harnesses combine as with pi (`--harness claude,copilot`).
+Each hook runs `codemyrules hook copilot <event>` from the pinned copy, with the project root as its folder:
+- `preToolUse` on `edit` and `create`: the guard; a flagged edit returns `permissionDecision: "ask"` with the reason, and Copilot asks the user.
+  In autopilot mode and in the cloud agent, Copilot treats "ask" as "deny".
+- `preToolUse`, `postToolUse` and `postToolUseFailure` on `bash` and `powershell`: the shell guard; its message to undo the change goes back as `additionalContext`.
+- `postToolUse` on `edit` and `create`: the fast tier; findings go back as `additionalContext`.
+- `agentStop`: the full tier; findings go back once with `decision: "block"`, which starts one more turn, and after that one retry the user sees what is still failing (stderr with exit code 2).
+
+A hook that runs past its timeout lets the tool call through, so the guard fails open on a timeout (10 s).
+The hooks file is git-excluded, so the cloud agent, which reads only committed hooks, does not run the loop.
+Edits through other tools (for example `apply_patch`, if a model gets it) are not checked and not recorded for the end-of-turn check.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -125,6 +139,7 @@ Everything lives in the project, private to the user who installed it:
 | `.claude/settings.local.json` | the six hook entries |
 | `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
 | `.opencode/plugins/codemyrules.js` | with `--harness opencode`: the opencode plugin, a one-line re-export of the pinned `opencode.mjs` |
+| `.github/hooks/codemyrules.json` | with `--harness copilot`: the Copilot CLI hooks, each running the pinned `copilot.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.

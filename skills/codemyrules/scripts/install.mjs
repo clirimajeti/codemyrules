@@ -3,11 +3,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { CONFIG_DIR, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
+import { CONFIG_DIR, COPILOT_HOOKS, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
 const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
-const EXCLUDES = { claude: [`${CONFIG_DIR}/`, SETTINGS_FILE], pi: [`${CONFIG_DIR}/`, PI_EXTENSION], opencode: [`${CONFIG_DIR}/`, OPENCODE_PLUGIN] };
+const EXCLUDES = { claude: [`${CONFIG_DIR}/`, SETTINGS_FILE], pi: [`${CONFIG_DIR}/`, PI_EXTENSION], opencode: [`${CONFIG_DIR}/`, OPENCODE_PLUGIN], copilot: [`${CONFIG_DIR}/`, COPILOT_HOOKS] };
 export const HARNESSES = Object.keys(EXCLUDES);
 // where the CLI sits inside the npm package
 const SCRIPTS = 'skills/codemyrules/scripts';
@@ -70,11 +70,27 @@ const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 const packageRoot = (cli) => path.resolve(path.dirname(cli), '../../..');
 export const pinnedCli = (projectDir) => path.join(projectDir, CONFIG_DIR, PIN_DIR, SCRIPTS, 'cli.mjs');
 
-// Harnesses that load every .js in a folder of their own: pi from .pi/extensions, opencode from .opencode/plugins.
-// The file re-exports the harness's adapter from the pinned copy, by a relative path, so it keeps working when the project folder moves.
+// GitHub Copilot CLI hooks, camelCase events: each passes its event name, since the payload has none.
+// cwd is the project root, so a session started in a subfolder still finds the setup.
+export const copilotHooks = (projectDir) => {
+  const hook = (event, matcher, timeoutSec) => [{
+    type: 'command', ...(matcher && { matcher }), command: `node "${pinnedCli(projectDir)}" hook copilot ${event}`, cwd: projectDir, timeoutSec,
+  }];
+  return JSON.stringify({ version: 1, hooks: {
+    preToolUse: hook('preToolUse', 'edit|create|bash|powershell', 10),
+    postToolUse: hook('postToolUse', 'edit|create|bash|powershell', 30),
+    postToolUseFailure: hook('postToolUseFailure', 'bash|powershell', 30),
+    agentStop: hook('agentStop', undefined, 120),
+  } }, null, 2) + '\n';
+};
+
+// Harness files that hold only codemyrules: pi and opencode load every .js in a folder of their own (.pi/extensions,
+// .opencode/plugins), Copilot every .json in .github/hooks.
+// A .js file re-exports the harness's adapter from the pinned copy, by a relative path, so it keeps working when the project folder moves.
 const EXTENSIONS = {
   pi: { file: PI_EXTENSION, adapter: 'pi.mjs', what: 'the pi extension' },
   opencode: { file: OPENCODE_PLUGIN, adapter: 'opencode.mjs', what: 'the opencode plugin' },
+  copilot: { file: COPILOT_HOOKS, adapter: 'copilot.mjs', what: 'the GitHub Copilot CLI hooks', content: copilotHooks },
 };
 export function extensionFile(harness) {
   const { file, adapter } = EXTENSIONS[harness];
@@ -83,14 +99,14 @@ export function extensionFile(harness) {
 }
 const hasExtension = (projectDir, harness) => readIf(path.join(projectDir, EXTENSIONS[harness].file))?.includes('codemyrules') ?? false;
 
-// the harnesses a project has the loop for: codemyrules' hooks in the Claude Code settings, the pi extension, the opencode plugin
+// the harnesses a project has the loop for: codemyrules' hooks in the Claude Code settings, or its own harness file
 export function installedHarnesses(projectDir) {
   const hooks = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []);
   return [...(hooks.some((h) => ours(h.command)) ? ['claude'] : []), ...Object.keys(EXTENSIONS).filter((h) => hasExtension(projectDir, h))];
 }
 
 // the harnesses a project shows signs of using, from their project folders and config files
-const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'] };
+const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'], copilot: ['.github/hooks', '.github/copilot-instructions.md'] };
 // codemyrules keeps its own folder in .claude for every harness, so .claude counts only when it holds something else
 const hasMarker = (projectDir, m) => {
   const p = path.join(projectDir, m);
@@ -154,7 +170,7 @@ export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
     const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(pinnedCli(projectDir)));
     add(sp, JSON.stringify(settings, null, 2) + '\n');
   }
-  for (const h of Object.keys(EXTENSIONS)) if (harnesses.includes(h)) add(path.join(projectDir, EXTENSIONS[h].file), extensionFile(h));
+  for (const [h, x] of Object.entries(EXTENSIONS)) if (harnesses.includes(h)) add(path.join(projectDir, x.file), x.content?.(projectDir) ?? extensionFile(h));
 
   const ep = excludePath(projectDir);
   const old = readIf(ep) ?? '';
@@ -338,8 +354,8 @@ export function uninstall(args) {
   for (const [h, x] of Object.entries(EXTENSIONS)) if (hasExtension(projectDir, h)) items.push({ path: path.join(projectDir, x.file), action: 'delete', preview: x.what, content: null });
   const apply = args.includes('--apply');
   const code = carryOut(items, apply);
-  // a .claude folder that held nothing but the setup goes too; rmdir leaves a folder with anything else in it alone
-  if (apply) try { fs.rmdirSync(path.dirname(dest)); } catch { /* not empty, or not there */ }
+  // a .claude or .github/hooks folder that held nothing but the setup goes too; rmdir leaves a folder with anything else in it alone
+  if (apply) for (const d of [path.dirname(dest), path.join(projectDir, path.dirname(COPILOT_HOOKS))]) try { fs.rmdirSync(d); } catch { /* not empty, or not there */ }
   return code;
 }
 
