@@ -41,7 +41,7 @@ const claude = (prompt) => spawnSync('claude', ['-p', '--model', 'haiku', '--all
   { cwd: repo, env, encoding: 'utf8', timeout: 240000, input: '' }).stdout ?? '';
 const read = (f) => { try { return fs.readFileSync(path.join(repo, f), 'utf8'); } catch { return ''; } };
 const reset = () => { git('checkout', '-q', '--', '.'); fs.rmSync(path.join(repo, 'b.ts'), { force: true }); };
-const ourHooks = () => Object.values(JSON.parse(read('.claude/settings.local.json')).hooks).flat().flatMap((e) => e.hooks).filter((h) => / hook \w+$/.test(h.command)).length;
+const ourHooks = () => Object.values(JSON.parse(read('.claude/settings.local.json')).hooks).flat().flatMap((e) => e.hooks).filter((h) => / hook \w+(?: \|\||$)/.test(h.command)).length;
 const suppress = `node -e "require('fs').writeFileSync('a.ts', 'x(); // eslint-disable-line\\n')"`;
 
 const checks = [

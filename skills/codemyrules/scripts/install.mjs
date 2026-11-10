@@ -36,9 +36,14 @@ export function findCli(env = process.env) {
   return null;
 }
 
+// A hook that crashes (exit 1) is a non-blocking error in Claude Code: the tool call goes through unchecked.
+// So the guard and the shell guard turn a crash, such as a deleted pinned copy, into exit 2, which blocks the call and says why.
+// Not the other hooks: a lint run that cannot start is no reason to block, and a blocked stop the agent cannot fix never ends.
+// Claude Code runs hook commands through bash, also on Windows (Git Bash).
+const FAIL_CLOSED = ` || { echo 'codemyrules: the hook could not run (the pinned copy in ${CONFIG_DIR}/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }`;
 const entry = (matcher, cli, hook, timeout) => ({
   ...(matcher && { matcher }),
-  hooks: [{ type: 'command', command: `node "${cli}" hook ${hook}`, timeout }],
+  hooks: [{ type: 'command', command: `node "${cli}" hook ${hook}${hook === 'guard' || hook === 'shell' ? FAIL_CLOSED : ''}`, timeout }],
 });
 
 export const hookEntries = (cli) => ({
@@ -50,7 +55,9 @@ export const hookEntries = (cli) => ({
 
 // a hook command codemyrules wrote: a copied script (before the npm package) or the CLI, wherever it was installed
 const ours = (command) => typeof command === 'string'
-  && (command.includes(`/${CONFIG_DIR}/`) || /cli\.mjs" hook (?:guard|shell|edited|turn)$/.test(command));
+  && (command.includes(`/${CONFIG_DIR}/`) || /cli\.mjs" hook (?:guard|shell|edited|turn)(?: \|\||$)/.test(command));
+// the CLI a hook command runs, with the project folder put in for $CLAUDE_PROJECT_DIR
+const hookTarget = (command, projectDir) => /^node "(.+?)" hook \w+/.exec(command)?.[1]?.replace('$CLAUDE_PROJECT_DIR', projectDir);
 
 // drop every hook codemyrules wrote before, then add these; everything else in the settings stays as it was
 export function mergeSettings(existing, hooks) {
@@ -69,6 +76,8 @@ const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 // <root>/skills/codemyrules/scripts/cli.mjs
 const packageRoot = (cli) => path.resolve(path.dirname(cli), '../../..');
 export const pinnedCli = (projectDir) => path.join(projectDir, CONFIG_DIR, PIN_DIR, SCRIPTS, 'cli.mjs');
+// the pinned CLI as the Claude Code hooks name it: through $CLAUDE_PROJECT_DIR, so a moved project folder keeps working
+export const PINNED_CLI_IN_HOOKS = `$CLAUDE_PROJECT_DIR/${CONFIG_DIR}/${PIN_DIR}/${SCRIPTS}/cli.mjs`;
 
 // GitHub Copilot CLI hooks, camelCase events: each passes its event name, since the payload has none.
 // cwd is the project root, so a session started in a subfolder still finds the setup.
@@ -167,7 +176,7 @@ export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
 
   if (harnesses.includes('claude')) {
     const sp = path.join(projectDir, SETTINGS_FILE);
-    const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(pinnedCli(projectDir)));
+    const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(PINNED_CLI_IN_HOOKS));
     add(sp, JSON.stringify(settings, null, 2) + '\n');
   }
   for (const [h, x] of Object.entries(EXTENSIONS)) if (harnesses.includes(h)) add(path.join(projectDir, x.file), x.content?.(projectDir) ?? extensionFile(h));
@@ -373,8 +382,8 @@ export function status(args) {
     console.log(`not installed in ${projectDir}`);
     return 0;
   }
-  const targets = [...new Set(commands.map((c) => /^node "(.+)" hook \w+$/.exec(c)?.[1]).filter(Boolean))];
-  const copyHooks = commands.filter((c) => !/cli\.mjs" hook \w+$/.test(c)).length;
+  const targets = [...new Set(commands.map((c) => hookTarget(c, projectDir)).filter(Boolean))];
+  const copyHooks = commands.filter((c) => !/cli\.mjs" hook \w+/.test(c)).length;
   const missing = targets.filter((t) => !fs.existsSync(t));
   if (targets.length === 1 && !missing.length && !copyHooks) console.log(`hooks: ${commands.length} entries, all run ${targets[0]}`);
   else {
@@ -386,8 +395,8 @@ export function status(args) {
     const { file, adapter } = EXTENSIONS[h];
     console.log(`${h}: ${file}${fs.existsSync(path.join(dest, PIN_DIR, SCRIPTS, adapter)) ? '' : `, but the pinned copy has no ${h} adapter; reinstall`}`);
   }
-  const pinned = pinnedCli(projectDir);
-  if (targets.some((t) => t !== pinned)) console.log(`  not pinned: every npm update of what they run reaches this project. Reinstall to pin a copy: codemyrules install ${projectDir} --apply`);
+  const pinned = path.resolve(pinnedCli(projectDir));
+  if (targets.some((t) => path.resolve(t) !== pinned)) console.log(`  not pinned: every npm update of what they run reaches this project. Reinstall to pin a copy: codemyrules install ${projectDir} --apply`);
   const pin = readJson(path.join(dest, PIN_FILE));
   if (pin) {
     const intact = fs.existsSync(path.join(dest, PIN_DIR)) && treeHash(path.join(dest, PIN_DIR)) === pin.sha256;

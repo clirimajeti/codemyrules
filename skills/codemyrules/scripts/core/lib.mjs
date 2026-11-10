@@ -31,7 +31,8 @@ const toPosix = (p) => p.split(path.sep).join('/');
 // linters report realpaths, so resolve a symlinked project dir (macOS /var) before going relative;
 // a path that does not exist yet resolves through its nearest existing parent
 export function realPath(p) {
-  try { return fs.realpathSync(p); } catch {
+  // native: on a case-insensitive file system (macOS, Windows) it returns the name as stored, so `ESLint.Config.js` is `eslint.config.js`
+  try { return fs.realpathSync.native(p); } catch {
     const parent = path.dirname(p);
     return parent === p ? p : path.join(realPath(parent), path.basename(p));
   }
@@ -86,14 +87,26 @@ const names = (s) => s.split('\0').filter(Boolean);
 const inRepo = (cwd) => git(cwd, ['rev-parse', '--is-inside-work-tree']).status === 0;
 const hasHead = (cwd) => git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']).status === 0;
 
+// the commit HEAD points at, or null (no commits yet, not a repo)
+export function headCommit(cwd) {
+  const r = git(cwd, ['rev-parse', '--verify', '-q', 'HEAD']);
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+// files that differ between two commits, relative to cwd, secret files left out
+export const committedFiles = (cwd, from, to) => names(git(cwd, ['diff', '--name-only', '-z', '--no-renames', '--relative', from, to, ...pathspec()]).stdout);
+// this work tree's own git folder, where hook state lives that a command in the work tree should not reach by accident
+export const gitDir = (cwd) => { const r = git(cwd, ['rev-parse', '--absolute-git-dir']); return r.status === 0 ? r.stdout.trim() : null; };
+
 // files: limit the diff to these paths (relative to cwd); a whole-repo diff costs seconds with thousands of changed files
-export function changedLines(cwd, files) {
+// base: the commit to compare with, by default HEAD; a commit that no longer exists falls back to HEAD
+export function changedLines(cwd, files, base = 'HEAD') {
   if (!inRepo(cwd)) return null;
   const spec = pathspec(files);
   const result = new Map();
   const markAll = (out) => names(out).forEach((f) => result.set(f, 'all'));
   if (hasHead(cwd)) {
-    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', 'HEAD', ...spec]).stdout)) result.set(f, ranges);
+    const from = base !== 'HEAD' && git(cwd, ['rev-parse', '--verify', '-q', `${base}^{commit}`]).status === 0 ? base : 'HEAD';
+    for (const [f, ranges] of parseHunks(git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', '--relative', from, ...spec]).stdout)) result.set(f, ranges);
   } else {
     markAll(git(cwd, ['ls-files', '--cached', '-z', ...spec]).stdout);
   }
@@ -219,6 +232,10 @@ export function logFindings(cwd, findings, event) {
 // the project-relative paths edited in this session's current turn, one per line
 export const turnFile = (cwd, sessionId) =>
   path.join(cwd, CONFIG_DIR, `turn-${String(sessionId || 'default').replace(/[^\w-]/g, '_')}.txt`);
+// next to the turn file: the commit HEAD was at when the turn's first edit was recorded (.base),
+// and the mark that the end-of-turn check sent this turn back (.retry)
+export const turnBaseFile = (cwd, sessionId) => turnFile(cwd, sessionId).replace(/\.txt$/, '.base');
+export const turnRetryFile = (cwd, sessionId) => turnFile(cwd, sessionId).replace(/\.txt$/, '.retry');
 
 export function readLoopConfig(cwd) {
   let raw = {};

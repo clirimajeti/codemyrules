@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
+import { PINNED_CLI_IN_HOOKS, findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
 
 const INSTALL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'install.mjs');
 const CLI = path.join(path.dirname(INSTALL), 'cli.mjs');
@@ -52,7 +52,7 @@ test('each hook entry has an explicit timeout in seconds', () => {
 
 test('the shell guard runs before and after Bash and NotebookEdit', () => {
   for (const e of ['PreToolUse', 'PostToolUse', 'PostToolUseFailure']) {
-    const shell = HOOKS[e].find((x) => x.hooks[0].command.endsWith(' hook shell'));
+    const shell = HOOKS[e].find((x) => x.hooks[0].command.includes(' hook shell'));
     assert.equal(shell.matcher, 'Bash|NotebookEdit', e);
   }
 });
@@ -72,7 +72,7 @@ test('--apply installs files, is idempotent, and leaves git clean', (t) => {
   assert.deepEqual(fs.readdirSync(path.join(dir, '.claude/codemyrules')).sort(), ['loop.json', 'pin.json', 'pkg']);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
   assert.equal(s.hooks.Stop.length, 1);
-  assert.equal(s.hooks.PreToolUse[0].hooks[0].command, `node "${pinnedCli(dir)}" hook guard`);
+  assert.match(s.hooks.PreToolUse[0].hooks[0].command, /^node "\$CLAUDE_PROJECT_DIR\/\.claude\/codemyrules\/pkg\/skills\/codemyrules\/scripts\/cli\.mjs" hook guard \|\| \{ echo .* >&2; exit 2; \}$/);
   const ex = fs.readFileSync(path.join(dir, '.git/info/exclude'), 'utf8');
   assert.equal(ex.split('\n').filter((l) => l === '.claude/codemyrules/').length, 1);
   assert.equal(ex.split('\n').filter((l) => l === '.claude/settings.local.json').length, 1);
@@ -218,8 +218,9 @@ test('every hook command the installer writes runs as written', (t) => {
   const { dir, cfg } = tempRepo(t);
   assert.equal(run(dir, cfg, '--apply').status, 0);
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8')).hooks;
-  const cmd = (event, name) => hooks[event].flatMap((e) => e.hooks).find((h) => h.command.endsWith(` hook ${name}`)).command;
-  const exec = (command, input) => spawnSync(command, { shell: true, input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
+  const cmd = (event, name) => hooks[event].flatMap((e) => e.hooks).find((h) => h.command.includes(` hook ${name}`)).command;
+  // Claude Code runs hook commands through bash, also on Windows (Git Bash)
+  const exec = (command, input) => spawnSync(command, { shell: process.platform === 'win32' ? 'bash' : true, input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
   const ask = exec(cmd('PreToolUse', 'guard'), { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.ts'), old_string: 'x', new_string: 'x // eslint-disable-line' } });
   assert.equal(ask.status, 0, ask.stderr);
   assert.equal(JSON.parse(ask.stdout).hookSpecificOutput.permissionDecision, 'ask');
@@ -255,8 +256,8 @@ test('installing over a copy-based install removes the copies and their hook ent
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8')).hooks;
   const commands = Object.values(hooks).flat().flatMap((e) => e.hooks.map((h) => h.command));
   assert.ok(commands.includes('echo mine'));
-  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/') && !c.includes(pinnedCli(dir))), commands.join('\n'));
-  assert.equal(commands.filter((c) => c.endsWith(' hook guard')).length, 1);
+  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/') && !c.includes(PINNED_CLI_IN_HOOKS)), commands.join('\n'));
+  assert.equal(commands.filter((c) => c.includes(' hook guard')).length, 1);
 });
 
 // a throwaway global npm prefix laid out the way `npm install -g` does it, on PATH ahead of nothing else
@@ -290,7 +291,7 @@ test('without --cli the installer pins the global npm package, and without one i
   const ok = spawnSync(process.execPath, [INSTALL, dir, '--config', cfg, '--apply'], { encoding: 'utf8', env });
   assert.equal(ok.status, 0, ok.stderr);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
-  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${pinnedCli(dir)}" hook turn`);
+  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${PINNED_CLI_IN_HOOKS}" hook turn`);
   assert.equal(fs.readFileSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs'), 'utf8'), fs.readFileSync(cli, 'utf8'));
 });
 

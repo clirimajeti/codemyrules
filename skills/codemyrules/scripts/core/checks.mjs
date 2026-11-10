@@ -99,6 +99,30 @@ export function contentReason(rel, before, after, oldTexts, newTexts) {
 
 const applyEdit = (text, e) => (e.replaceAll ? text.split(e.oldText ?? '').join(e.newText ?? '') : text.replace(e.oldText ?? '', () => e.newText ?? ''));
 
+// The whole lines each replacement touches, before and after it, so an edit of part of a line is judged by the line:
+// replacing `no-console` with `no-console, no-eval` widens the suppression on that line.
+// Edits apply in order; an edit whose old text is not in the file is judged by its own pieces (the tool will fail it anyway).
+function touchedLines(text, edits) {
+  const olds = [];
+  const news = [];
+  for (const e of edits) {
+    const old = e.oldText ?? '';
+    const add = e.newText ?? '';
+    const at = [];
+    for (let i = old ? text.indexOf(old) : -1; i >= 0; i = e.replaceAll ? text.indexOf(old, i + old.length) : -1) at.push(i);
+    if (!at.length) { olds.push(old); news.push(add); text = applyEdit(text, e); continue; }
+    for (const i of at) {
+      const start = text.lastIndexOf('\n', i - 1) + 1;
+      const end = text.indexOf('\n', i + old.length);
+      const stop = end < 0 ? text.length : end;
+      olds.push(text.slice(start, stop));
+      news.push(text.slice(start, i) + add + text.slice(i + old.length, stop));
+    }
+    text = applyEdit(text, e);
+  }
+  return { olds, news };
+}
+
 // edit: { file, content } for a whole-file write, or { file, edits: [{ oldText, newText, replaceAll }] } for replacements
 export function checkEdit(cwd, edit) {
   const inside = projectPath(cwd, edit.file);
@@ -114,5 +138,7 @@ export function checkEdit(cwd, edit) {
     return contentReason(rel, () => old, () => edit.content);
   }
   const edits = edit.edits ?? [];
-  return contentReason(rel, disk, () => edits.reduce(applyEdit, disk()), edits.map((e) => e.oldText), edits.map((e) => e.newText));
+  const before = disk();
+  const { olds, news } = touchedLines(before, edits);
+  return contentReason(rel, () => before, () => edits.reduce(applyEdit, before), olds, news);
 }

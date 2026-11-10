@@ -215,9 +215,13 @@ test('a command that only mentions install.mjs in passing is not the installer',
 
 test('runsInstaller knows the installer by the first word of a command part', async () => {
   const { runsInstaller } = await import('../core/snapshot.mjs');
+  const cwd = path.resolve('/proj');
   for (const c of ['codemyrules install . --apply', 'npx -y codemyrules@0.5.0 install . --apply', 'cd x && codemyrules uninstall . --apply',
-    'node /p/skills/codemyrules/scripts/install.mjs . --config a.json', 'node "C:/p/install.mjs" .', 'FOO=1 codemyrules install .']) assert.equal(runsInstaller(c), true, c);
-  for (const c of ['echo codemyrules install', 'cat install.mjs', 'echo x # node install.mjs', 'codemyrules status .', 'node reinstall.mjs.bak', undefined]) assert.equal(runsInstaller(c), false, String(c));
+    `node ${path.resolve('/p/skills/codemyrules/scripts/install.mjs')} . --config a.json`, `node "${path.resolve('/p/install.mjs')}" .`, 'node ~/x/install.mjs .',
+    'node ../other/install.mjs .', 'node .claude/codemyrules/pkg/skills/codemyrules/scripts/install.mjs .', 'FOO=1 codemyrules install .']) assert.equal(runsInstaller(c, cwd), true, c);
+  // a script inside the project, which the agent can write, and a PATH that could put another codemyrules first
+  for (const c of ['echo codemyrules install', 'cat install.mjs', 'echo x # node install.mjs', 'codemyrules status .', 'node reinstall.mjs.bak', undefined,
+    'node tmp/install.mjs .', 'node ./install.mjs', 'PATH=./bin:$PATH codemyrules install .']) assert.equal(runsInstaller(c, cwd), false, String(c));
 });
 
 test('emptying the protect list and editing a protected file in one command still blocks', (t) => {
@@ -236,7 +240,9 @@ test('tools installed inside the setup folder are not snapshotted', (t) => {
   fs.mkdirSync(nm, { recursive: true });
   for (let i = 0; i < 50; i++) fs.writeFileSync(path.join(nm, `m${i}.mjs`), 'export {};\n');
   assert.equal(hook(dir, 'PreToolUse').status, 0);
-  const snap = JSON.parse(fs.readFileSync(path.join(dir, '.claude/codemyrules/shell-tu_1.json'), 'utf8'));
+  // the snapshot lives in the git folder, where a command that deletes the setup folder does not reach it
+  const snapDir = path.join(dir, '.git/codemyrules');
+  const snap = JSON.parse(fs.readFileSync(path.join(snapDir, fs.readdirSync(snapDir).find((f) => f.endsWith('-tu_1.json'))), 'utf8')).files;
   assert.deepEqual(Object.keys(snap).filter((f) => f.includes('node_modules')), []);
   assert.ok('.claude/codemyrules/loop.json' in snap);
 });
