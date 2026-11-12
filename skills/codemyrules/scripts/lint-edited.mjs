@@ -7,7 +7,7 @@ import { lintEdited } from './core/loop.mjs';
 // one hook call; returns the exit code
 export async function main(input) {
   // realpath: linters report resolved paths, so a symlinked project dir (macOS /var) would never match
-  const cwd = fs.realpathSync(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
+  const cwd = fs.realpathSync.native(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
   const filePath = input.tool_input?.file_path;
   if (!filePath) return 0;
   const { info, notes, findings } = lintEdited(cwd, input.session_id, filePath);

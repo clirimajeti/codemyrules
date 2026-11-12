@@ -24,7 +24,7 @@ const say = (ctx, lines, level = 'info') => { if (ctx.hasUI && lines.length) ctx
 
 export default function codemyrules(pi) {
   // the hooks run in the project root, with symlinks resolved: linters report resolved paths
-  const root = (ctx) => fs.realpathSync(ctx.cwd);
+  const root = (ctx) => fs.realpathSync.native(ctx.cwd);
   // once seen, a project stays installed for this process: a command that deletes loop.json must not switch the checks off
   const seen = new Set();
   const installed = (ctx) => {

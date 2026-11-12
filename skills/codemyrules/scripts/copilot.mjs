@@ -36,7 +36,7 @@ const snapshotId = (session, command) => `copilot-${crypto.createHash('sha1').up
 // one hook call; returns the exit code
 export async function main(input, event) {
   // the hooks file sets cwd to the project root; the payload's cwd is wherever the session started
-  const cwd = fs.realpathSync(process.cwd());
+  const cwd = fs.realpathSync.native(process.cwd());
   const session = input.sessionId ?? input.session_id;
   const tool = input.toolName;
   const args = toolArgs(input);

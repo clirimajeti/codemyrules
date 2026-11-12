@@ -38,7 +38,7 @@ export function realPath(p) {
   }
 }
 // a linter's path (absolute, or relative to the folder it ran in) as a path relative to the project root
-const relFile = (cwd, file, base = cwd) => toPosix(path.relative(realPath(cwd), path.resolve(realPath(base), file)));
+const relFile = (cwd, file, base = cwd) => toPosix(path.relative(realPath(cwd), realPath(path.resolve(realPath(base), file))));
 
 // git C-quotes a path that holds ", \ or a control character, even with core.quotepath=off: "b/we\"ird.ts"
 const ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };

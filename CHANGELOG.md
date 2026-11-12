@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The hooks resolve the project folder and the linters' file paths to one form, so a project path spelled another way (an 8.3 short name such as `RUNNER~1` on Windows, another letter case on macOS) no longer makes edited files look outside the project and go unlinted.
 - `install` refuses when the package it would pin has no adapter for a requested harness (for example an older global package and `--harness copilot`), instead of writing hooks that run a missing file.
 - `status` no longer prints "hooks: 0 entries" for a project without Claude Code hooks.
 - The README says the Copilot CLI runs repository hooks only in a trusted folder.

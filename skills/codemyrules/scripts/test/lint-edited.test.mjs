@@ -46,6 +46,18 @@ test('blocks on an error in the edited file', () => {
   } finally { cleanup(dir); }
 });
 
+// the same folder spelled another way (letter case on macOS, a short 8.3 name such as RUNNER~1 on Windows):
+// every path must be resolved to one form, or the edited file looks outside the project and nothing is linted
+test('blocks when the project dir is spelled in another letter case', (t) => {
+  const dir = setup('fast');
+  t.after(() => cleanup(dir));
+  const alias = path.join(path.dirname(dir), path.basename(dir).toUpperCase());
+  if (!fs.existsSync(alias)) return t.skip('case-sensitive file system');
+  const r = run(alias, path.join(alias, 'a.ts'));
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /a\.ts:2 fake\/rule fake error/);
+});
+
 test('skips full-tier linters but still records the edit for the turn', () => {
   const dir = setup('full');
   try {
