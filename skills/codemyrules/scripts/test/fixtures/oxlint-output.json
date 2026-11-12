@@ -1,0 +1,9 @@
+{ "diagnostics": [{"message": "`debugger` statement is not allowed","code": "eslint(no-debugger)","severity": "warning","url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-debugger.html","help": "Remove the debugger statement","filename": "src/a.ts","labels": [{"span": {"offset": 13,"length": 9,"line": 2,"column": 1}}]},
+{"message": "Unexpected console statement.","code": "eslint(no-console)","severity": "warning","url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-console.html","help": "Delete this console statement.","filename": "src/a.ts","labels": [{"span": {"offset": 23,"length": 11,"line": 3,"column": 1}}]},
+{"message": "Use the logger from src/log.ts, not console.log (docs/conventions.md).","code": "local(gen-no-log)","severity": "error","filename": "src/a.ts","labels": [{"span": {"offset": 23,"length": 14,"line": 3,"column": 1}}]}],
+              "number_of_files": 1,
+              "number_of_rules": 98,
+              "threads_count": 18,
+              "start_time": 0.046162916
+            }
+            
