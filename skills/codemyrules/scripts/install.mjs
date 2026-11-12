@@ -193,7 +193,7 @@ export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
   return items;
 }
 
-const FORMATS = ['eslint', 'ast-grep', 'ruff'];
+const FORMATS = ['eslint', 'ast-grep', 'ruff', 'oxlint'];
 const TIERS = ['fast', 'full'];
 const isStrList = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
 

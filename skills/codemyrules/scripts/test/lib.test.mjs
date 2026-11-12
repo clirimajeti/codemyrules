@@ -94,6 +94,27 @@ test('parseLinterOutput ruff', () => {
   assert.deepEqual(f, { file: 'app/x.py', line: 7, ruleId: 'S110', message: 'm', severity: 'error' });
 });
 
+test('parseLinterOutput oxlint: real 1.93 output, rule ids as plugin/rule', () => {
+  const cwd = path.resolve('/repo');
+  const out = fs.readFileSync(new URL('./fixtures/oxlint-output.json', import.meta.url), 'utf8');
+  const f = parseLinterOutput('oxlint', out, cwd);
+  assert.equal(f.length, 3);
+  assert.deepEqual(f[0], { file: 'src/a.ts', line: 2, ruleId: 'eslint/no-debugger', message: '`debugger` statement is not allowed', severity: 'warning' });
+  assert.deepEqual(f[2], { file: 'src/a.ts', line: 3, ruleId: 'local/gen-no-log', message: 'Use the logger from src/log.ts, not console.log (docs/conventions.md).', severity: 'error' });
+});
+
+test('parseLinterOutput oxlint without labels gives line 0', () => {
+  const out = JSON.stringify({ diagnostics: [{ code: 'x(y)', message: 'm', severity: 'error', filename: 'a.ts', labels: [] }] });
+  const [f] = parseLinterOutput('oxlint', out, path.resolve('/repo'));
+  assert.deepEqual(f, { file: 'a.ts', line: 0, ruleId: 'x/y', message: 'm', severity: 'error' });
+});
+
+test('parseLinterOutput oxlint in a package folder maps files to the project root', () => {
+  const out = JSON.stringify({ diagnostics: [{ code: 'typescript-eslint(no-explicit-any)', message: 'm', severity: 'error', filename: 'src/b.ts', labels: [{ span: { line: 4 } }] }] });
+  const [f] = parseLinterOutput('oxlint', out, path.resolve('/repo'), path.resolve('/repo/frontend'));
+  assert.deepEqual(f, { file: 'frontend/src/b.ts', line: 4, ruleId: 'typescript-eslint/no-explicit-any', message: 'm', severity: 'error' });
+});
+
 test('onChangedLines keeps only errors on changed lines', () => {
   const mk = (file, line, severity = 'error') => ({ file, line, ruleId: 'r', message: 'm', severity });
   const changed = new Map([['a.ts', [[4, 5]]], ['n.ts', 'all']]);

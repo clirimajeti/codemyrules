@@ -153,6 +153,12 @@ const parsers = {
     file: relFile(cwd, m.filename, base), line: m.location.row, ruleId: m.code,
     message: m.message, severity: 'error',
   })),
+  // code is "plugin(rule)": eslint(no-console), local(gen-x); a finding without a label has no line
+  oxlint: (data, cwd, base) => data.diagnostics.map((d) => ({
+    file: relFile(cwd, d.filename, base), line: d.labels?.[0]?.span?.line ?? 0,
+    ruleId: String(d.code ?? 'oxlint').replace(/^(.+?)\((.+)\)$/, '$1/$2'),
+    message: d.message, severity: d.severity === 'error' ? 'error' : 'warning',
+  })),
 };
 
 // base: the folder the linter ran in, when it is not the project root
