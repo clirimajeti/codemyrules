@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
+import { PINNED_CLI_IN_HOOKS, findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
 
 const INSTALL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'install.mjs');
 const CLI = path.join(path.dirname(INSTALL), 'cli.mjs');
@@ -52,7 +52,7 @@ test('each hook entry has an explicit timeout in seconds', () => {
 
 test('the shell guard runs before and after Bash and NotebookEdit', () => {
   for (const e of ['PreToolUse', 'PostToolUse', 'PostToolUseFailure']) {
-    const shell = HOOKS[e].find((x) => x.hooks[0].command.endsWith(' hook shell'));
+    const shell = HOOKS[e].find((x) => x.hooks[0].command.includes(' hook shell'));
     assert.equal(shell.matcher, 'Bash|NotebookEdit', e);
   }
 });
@@ -72,7 +72,7 @@ test('--apply installs files, is idempotent, and leaves git clean', (t) => {
   assert.deepEqual(fs.readdirSync(path.join(dir, '.claude/codemyrules')).sort(), ['loop.json', 'pin.json', 'pkg']);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
   assert.equal(s.hooks.Stop.length, 1);
-  assert.equal(s.hooks.PreToolUse[0].hooks[0].command, `node "${pinnedCli(dir)}" hook guard`);
+  assert.match(s.hooks.PreToolUse[0].hooks[0].command, /^node "\$CLAUDE_PROJECT_DIR\/\.claude\/codemyrules\/pkg\/skills\/codemyrules\/scripts\/cli\.mjs" hook guard \|\| \{ echo .* >&2; exit 2; \}$/);
   const ex = fs.readFileSync(path.join(dir, '.git/info/exclude'), 'utf8');
   assert.equal(ex.split('\n').filter((l) => l === '.claude/codemyrules/').length, 1);
   assert.equal(ex.split('\n').filter((l) => l === '.claude/settings.local.json').length, 1);
@@ -218,8 +218,9 @@ test('every hook command the installer writes runs as written', (t) => {
   const { dir, cfg } = tempRepo(t);
   assert.equal(run(dir, cfg, '--apply').status, 0);
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8')).hooks;
-  const cmd = (event, name) => hooks[event].flatMap((e) => e.hooks).find((h) => h.command.endsWith(` hook ${name}`)).command;
-  const exec = (command, input) => spawnSync(command, { shell: true, input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
+  const cmd = (event, name) => hooks[event].flatMap((e) => e.hooks).find((h) => h.command.includes(` hook ${name}`)).command;
+  // Claude Code runs hook commands through bash, also on Windows (Git Bash)
+  const exec = (command, input) => spawnSync(command, { shell: process.platform === 'win32' ? 'bash' : true, input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
   const ask = exec(cmd('PreToolUse', 'guard'), { tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'a.ts'), old_string: 'x', new_string: 'x // eslint-disable-line' } });
   assert.equal(ask.status, 0, ask.stderr);
   assert.equal(JSON.parse(ask.stdout).hookSpecificOutput.permissionDecision, 'ask');
@@ -255,8 +256,8 @@ test('installing over a copy-based install removes the copies and their hook ent
   const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8')).hooks;
   const commands = Object.values(hooks).flat().flatMap((e) => e.hooks.map((h) => h.command));
   assert.ok(commands.includes('echo mine'));
-  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/') && !c.includes(pinnedCli(dir))), commands.join('\n'));
-  assert.equal(commands.filter((c) => c.endsWith(' hook guard')).length, 1);
+  assert.ok(!commands.some((c) => c.includes('.claude/codemyrules/') && !c.includes(PINNED_CLI_IN_HOOKS)), commands.join('\n'));
+  assert.equal(commands.filter((c) => c.includes(' hook guard')).length, 1);
 });
 
 // a throwaway global npm prefix laid out the way `npm install -g` does it, on PATH ahead of nothing else
@@ -290,8 +291,23 @@ test('without --cli the installer pins the global npm package, and without one i
   const ok = spawnSync(process.execPath, [INSTALL, dir, '--config', cfg, '--apply'], { encoding: 'utf8', env });
   assert.equal(ok.status, 0, ok.stderr);
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'));
-  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${pinnedCli(dir)}" hook turn`);
+  assert.equal(s.hooks.Stop[0].hooks[0].command, `node "${PINNED_CLI_IN_HOOKS}" hook turn`);
   assert.equal(fs.readFileSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs'), 'utf8'), fs.readFileSync(cli, 'utf8'));
+});
+
+test('a package without the adapter of a requested harness is refused, so no hook runs a missing file', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const pkg = fakePackage(t, '0.8.0');
+  fs.rmSync(path.join(path.dirname(pkg.cli), 'copilot.mjs'));
+  const r = spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, '--harness', 'claude,copilot', '--apply'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /codemyrules 0\.8\.0.*has no copilot support; nothing written\. Update it: npm install -g codemyrules@latest/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, '--harness', 'pi', '--apply'], { encoding: 'utf8' }).status, 0);
+  // status names the pi extension, and no Claude Code hooks line for a project without them
+  const s = spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout;
+  assert.match(s, /^pi: /m);
+  assert.doesNotMatch(s, /^hooks:/m);
 });
 
 // a package checkout to pin, so a test can change it like a new release
@@ -381,6 +397,36 @@ test('--harness opencode writes the opencode plugin; reinstall keeps it, status 
   assert.ok(!fs.existsSync(plugin));
 });
 
+test('--harness copilot writes the Copilot hooks file; reinstall keeps it, status shows it, uninstall removes it', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'copilot', '--apply').status, 0);
+  const file = path.join(dir, '.github/hooks/codemyrules.json');
+  const { version, hooks } = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(version, 1);
+  assert.deepEqual(Object.keys(hooks), ['preToolUse', 'postToolUse', 'postToolUseFailure', 'agentStop']);
+  for (const [event, [h]] of Object.entries(hooks)) {
+    assert.equal(h.cwd, dir);
+    const [, cli, ev] = /^node "(.+)" hook copilot (\w+)$/.exec(h.command);
+    assert.equal(ev, event);
+    assert.ok(fs.existsSync(path.join(path.dirname(cli), 'copilot.mjs')), `the hooks run ${cli}`);
+  }
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+  assert.equal(spawnSync('node', [INSTALL, dir, '--cli', CLI], { encoding: 'utf8' }).stdout.trim(), 'nothing to change');
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /copilot: \.github\/hooks\/codemyrules\.json\n/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(path.join(dir, '.github/hooks')), 'uninstall leaves no empty .github/hooks behind');
+});
+
+test('without --harness a first install picks Copilot from .github/copilot-instructions.md', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.github'));
+  fs.writeFileSync(path.join(dir, '.github/copilot-instructions.md'), 'x');
+  const r = run(dir, cfg, '--apply');
+  assert.match(r.stdout, /harness: copilot \(found \.github\/copilot-instructions\.md/);
+  assert.ok(fs.existsSync(path.join(dir, '.github/hooks/codemyrules.json')));
+});
+
 test('an unknown harness exits 2 and writes nothing', (t) => {
   const { dir, cfg } = tempRepo(t);
   const r = run(dir, cfg, '--harness', 'codex', '--apply');
@@ -410,10 +456,34 @@ test('without --harness a first install defaults to Claude Code and says so', (t
 test('without --harness a first install in a project set up for two harnesses exits 2 and writes nothing', (t) => {
   const { dir, cfg } = tempRepo(t);
   fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/settings.json'), '{}');
   fs.mkdirSync(path.join(dir, '.pi'));
   const r = run(dir, cfg, '--apply');
   assert.equal(r.status, 2);
   assert.match(r.stderr, /setup for claude and pi; name the harness/);
   assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
   assert.ok(!fs.existsSync(path.join(dir, '.pi/extensions')));
+});
+
+test('codemyrules own .claude folder is no sign of Claude Code: install, uninstall, install works in a pi project', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.pi'));
+  assert.match(run(dir, cfg, '--apply').stdout, /harness: pi \(found \.pi/);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude')), 'uninstall leaves no empty .claude behind');
+  const again = run(dir, cfg, '--apply');
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /harness: pi \(found \.pi/);
+  // a setup folder left behind without the extension (a half-removed install) does not count either
+  fs.rmSync(path.join(dir, '.pi/extensions/codemyrules.js'));
+  assert.match(run(dir, cfg, '--apply').stdout, /harness: pi \(found \.pi/);
+});
+
+test('uninstall keeps a .claude folder that holds anything else', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude/CLAUDE.md'), 'x');
+  assert.equal(run(dir, cfg, '--harness', 'pi', '--apply').status, 0);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/CLAUDE.md')));
 });

@@ -130,6 +130,21 @@ test('a malformed loop.json prints a note and exits 0', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// the project dir spelled another way (letter case on macOS, an 8.3 short name on Windows) still finds the edit
+test('the end of the turn finds the edit when the project dir is spelled in another letter case', (t) => withRepo(undefined, (dir) => {
+  const alias = path.join(path.dirname(dir), path.basename(dir).toUpperCase());
+  if (!fs.existsSync(alias)) return t.skip('case-sensitive file system');
+  edit(dir, 'a.ts', 2, false);
+  const post = spawnSync('node', [path.join(here, '..', 'lint-edited.mjs')], {
+    input: JSON.stringify({ session_id: 'alias', tool_name: 'Edit', tool_input: { file_path: path.join(alias, 'src/a.ts') } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: alias },
+  });
+  assert.equal(post.status, 0, post.stdout + post.stderr);
+  const r = run(alias, { session_id: 'alias', stop_hook_active: false });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /^src\/a\.ts:2 fake\/rule bad/);
+}));
+
 test('an edit recorded by lint-edited is checked at the end of the turn', () => withRepo(undefined, (dir) => {
   edit(dir, 'a.ts', 2, false);
   const post = spawnSync('node', [path.join(here, '..', 'lint-edited.mjs')], {

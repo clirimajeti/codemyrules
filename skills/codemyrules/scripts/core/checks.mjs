@@ -2,7 +2,7 @@
 // and lint settings inside shared build files. Each returns a reason the user must approve, or null.
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG_DIR, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isSecretFile, matchesPattern, readLoopConfig, realPath } from './lib.mjs';
+import { CONFIG_DIR, HARNESS_FILES, isSecretFile, matchesPattern, readLoopConfig, realPath } from './lib.mjs';
 
 export const SUPPRESSION = new RegExp([
   /eslint-disable/, /\/[*/]\s*eslint\s+[@\w/-]+\s*:/, // inline ESLint config: /* eslint no-console: "off" */
@@ -75,7 +75,7 @@ export function projectPath(cwd, file) {
 
 // alsoProtect: patterns that count too, such as the protect list from before a command that may have rewritten loop.json
 export function protectReason(cwd, rel, alsoProtect = []) {
-  if (rel.startsWith(`${CONFIG_DIR}/`) || rel === SETTINGS_FILE || rel === PI_EXTENSION || rel === OPENCODE_PLUGIN) return `${rel} is part of the codemyrules setup.`;
+  if (rel.startsWith(`${CONFIG_DIR}/`) || HARNESS_FILES.includes(rel)) return `${rel} is part of the codemyrules setup.`;
   let protect;
   try {
     protect = readLoopConfig(cwd).protect;
@@ -88,13 +88,40 @@ export function protectReason(cwd, rel, alsoProtect = []) {
 
 // why changing a file from before() to after() needs the user, or null; the thunks read whole files only when needed.
 // oldTexts/newTexts are the edited pieces (one pair per edit), by default the whole file.
+// The new text is looked at first: without a suppression in it nothing was added, and before() is not called.
+// After a shell command before() is one git call per changed file, 8 s for 1500 files.
 export function contentReason(rel, before, after, oldTexts, newTexts) {
-  if (addsSuppression(rel, oldTexts ?? [before()], newTexts ?? [after()])) return `this edit adds or changes a lint suppression in ${rel}.`;
+  const added = newTexts ?? [after()];
+  if (added.some((t) => SUPPRESSION.test(t ?? '')) && addsSuppression(rel, oldTexts ?? [before()], added)) return `this edit adds or changes a lint suppression in ${rel}.`;
   if (EMBEDS_LINT(rel) && lintSettings(rel, before()) !== lintSettings(rel, after())) return `this edit changes lint settings in ${rel}.`;
   return null;
 }
 
 const applyEdit = (text, e) => (e.replaceAll ? text.split(e.oldText ?? '').join(e.newText ?? '') : text.replace(e.oldText ?? '', () => e.newText ?? ''));
+
+// The whole lines each replacement touches, before and after it, so an edit of part of a line is judged by the line:
+// replacing `no-console` with `no-console, no-eval` widens the suppression on that line.
+// Edits apply in order; an edit whose old text is not in the file is judged by its own pieces (the tool will fail it anyway).
+function touchedLines(text, edits) {
+  const olds = [];
+  const news = [];
+  for (const e of edits) {
+    const old = e.oldText ?? '';
+    const add = e.newText ?? '';
+    const at = [];
+    for (let i = old ? text.indexOf(old) : -1; i >= 0; i = e.replaceAll ? text.indexOf(old, i + old.length) : -1) at.push(i);
+    if (!at.length) { olds.push(old); news.push(add); text = applyEdit(text, e); continue; }
+    for (const i of at) {
+      const start = text.lastIndexOf('\n', i - 1) + 1;
+      const end = text.indexOf('\n', i + old.length);
+      const stop = end < 0 ? text.length : end;
+      olds.push(text.slice(start, stop));
+      news.push(text.slice(start, i) + add + text.slice(i + old.length, stop));
+    }
+    text = applyEdit(text, e);
+  }
+  return { olds, news };
+}
 
 // edit: { file, content } for a whole-file write, or { file, edits: [{ oldText, newText, replaceAll }] } for replacements
 export function checkEdit(cwd, edit) {
@@ -111,5 +138,7 @@ export function checkEdit(cwd, edit) {
     return contentReason(rel, () => old, () => edit.content);
   }
   const edits = edit.edits ?? [];
-  return contentReason(rel, disk, () => edits.reduce(applyEdit, disk()), edits.map((e) => e.oldText), edits.map((e) => e.newText));
+  const before = disk();
+  const { olds, news } = touchedLines(before, edits);
+  return contentReason(rel, () => before, () => edits.reduce(applyEdit, before), olds, news);
 }

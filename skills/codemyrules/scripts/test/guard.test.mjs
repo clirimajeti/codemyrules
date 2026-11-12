@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { decide } from '../guard.mjs';
-import { suppressionLines } from '../core/checks.mjs';
+import { contentReason, suppressionLines } from '../core/checks.mjs';
 
 const GUARD = path.join(import.meta.dirname, '..', 'guard.mjs');
 
@@ -240,4 +240,13 @@ test('a guard that fails asks the user instead of letting the edit through', () 
     assert.equal(out.permissionDecision, 'ask');
     assert.match(out.permissionDecisionReason, /could not check this edit .*EISDIR/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a changed file without a suppression is judged without reading its old content', () => {
+  const never = () => { throw new Error('old content was read'); };
+  assert.equal(contentReason('src/a.ts', never, () => 'x();\n'), null);
+  assert.match(contentReason('src/a.ts', () => 'x();\n', () => '// eslint-disable\nx();\n'), /adds or changes a lint suppression/);
+  assert.equal(contentReason('src/a.ts', () => '// eslint-disable\nx();\n', () => '// eslint-disable\nx();\ny();\n'), null);
+  // a build file's lint settings are still compared
+  assert.match(contentReason('pyproject.toml', () => '[tool.ruff]\nignore = []\n', () => '[tool.ruff]\nignore = ["E501"]\n'), /changes lint settings/);
 });

@@ -24,15 +24,19 @@ Credential files (`.env*`, `.envrc`, SSH keys, `*.pem` / `*.key`, `.aws/`, `.kub
 ## What blocks
 
 - **Errors only.** Warnings never block.
-- **On changed lines only.** A finding blocks only when its line was added or changed since `HEAD`, from the `git diff` hunks; an untracked file counts as changed throughout.
+- **On changed lines only.** A finding blocks only when its line was added or changed since the turn started, from the `git diff` hunks; an untracked file counts as changed throughout.
+  The turn's first edit records the commit `HEAD` was at, and the diff is against that commit, so a commit inside the turn does not hide the turn's changes.
   Older hits elsewhere in the same file are ignored, so the agent never fixes unrelated legacy code.
 - **At most 20 findings** reach the agent, plus `…and N more`, so one bad turn cannot flood its context.
+  Each finding is one line: the first line of the linter's message, cut at 1000 characters.
 
 A blocked check returns the findings to the agent with exit code 2, each as `file:line ruleId message`, followed by one instruction: fix them; when a case seems legitimate, ask the user and propose a change to the rule (an exclusion or a narrower pattern, plus a test case), not to the code; never add an ignore comment or change lint config on its own; with nobody to ask, finish the rest of the task and list them in the final report.
 That instruction arrives only when a rule fails, so it needs no line in CLAUDE.md.
 
 The end-of-turn check blocks once per turn.
 When the turn ends again with findings left, it lets it end and shows the user what is still failing, so it never loops.
+It counts a stop as its own retry only when Claude Code says a stop hook sent the turn back (`stop_hook_active`) and its own mark from the block is there.
+So another Stop hook (a notes check, a test run) that sent the turn back first does not turn codemyrules' first block into a mere report.
 
 The fast tier runs only installed binaries: a package runner such as `npx` resolves the package on every edit, so the installer refuses one there.
 Each check diffs only the files it lints, not the whole repository.
@@ -55,12 +59,14 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
   - Ruby and PHP: `rubocop:disable` and `todo`, `@phpstan-ignore`, `@psalm-suppress`, `phpcs:ignore` and `disable`
   - ast-grep: `ast-grep-ignore`
 
+  The whole lines an edit touches are compared, not only the replaced text, so replacing `no-console` with `no-console, no-eval` in an existing disable comment also asks.
+
   It compares the suppressions before and after the edit, so swapping one ignore comment for another, or adding a rule name to an existing one, also asks.
   An ignore comment on a line of its own counts together with the next line of code, so moving it onto other code also asks.
   Prose files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are left out, so docs can name an ignore comment; a string literal in code that holds one still asks.
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
-- an edit to a path in `protect`: the lint configs, rule folders and baseline files
-- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js` or to `.opencode/plugins/codemyrules.js`
+- an edit to a path in `protect`: the lint configs, rule folders and baseline files; the path is taken as stored on disk, so `ESLint.Config.js` on a case-insensitive file system (macOS, Windows) is `eslint.config.js`
+- an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js`, to `.opencode/plugins/codemyrules.js` or to `.github/hooks/codemyrules.json`
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -68,14 +74,17 @@ With nobody to approve, the edit does not happen.
 ### Changes through the shell
 
 A command can change any file (`sed -i`, `echo >>`, `git apply`, a script), so a second hook, `codemyrules hook shell`, runs before and after each `Bash` and `NotebookEdit` call, also after one that fails (`PostToolUseFailure`): a failed command can still have changed files.
-Before, it stores the content of every file that differs from `HEAD`, plus the codemyrules setup, in git's object store; after, it finds every file the call changed and checks it like an edit, including the protected paths.
+Before, it stores the content of every file that differs from `HEAD`, plus the codemyrules setup and the protected files that are plain paths or globs in the last path part (`rules/*.js`), in git's object store; after, it finds every file the call changed and checks it like an edit, including the protected paths.
+So a protected file that git ignores is also caught; one matched only by a `**` pattern is not.
+The snapshot itself is in the work tree's git folder (`.git/codemyrules/`), so a command that deletes `.claude/` cannot delete it.
+It also records `HEAD`: when the command commits, the committed files are checked too.
 The change has already happened, so it cannot ask first: it tells the agent to undo the change or ask the user (a `PostToolUse` block, or added context after a failed command), and shows the user the same list.
 The files it changed are also recorded for the end-of-turn check.
 It reads only what can have changed: git's stat data finds the uncommitted files, and a file is hashed again only when its size or times moved, so a hook takes about 60 ms in a small repository and about 100 ms with 5,000 uncommitted files.
 Credential files are never read.
 When two commands run in parallel, each one may also report the other's changes.
 A snapshot whose command never ran (the user denied it) and a turn list whose turn never ended are deleted once they are a day old.
-A command that runs the codemyrules installer (a part of it starting with `codemyrules install` or `uninstall`, or `node …/install.mjs`) may change the setup: those changes are shown to the user, and the agent is not sent back; every other file it changes is still checked.
+A command that runs the codemyrules installer (a part of it starting with `codemyrules install` or `uninstall`, or `node …/install.mjs` for an `install.mjs` outside the project or in the pinned copy) may change the setup: those changes are shown to the user, and the agent is not sent back; every other file it changes is still checked.
 A file counts as protected when it was protected before the command or after it, so rewriting `loop.json` and editing a lint config in one command still blocks.
 CI, running the project's own lint setup, stays the safety net.
 
@@ -83,7 +92,7 @@ CI, running the project's own lint setup, stays the safety net.
 
 `codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
 A reinstall without `--harness` keeps the harnesses already installed.
-A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, or `.opencode/` or `opencode.json`), Claude Code when it has none, and refuses when it has more than one.
+A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`), Claude Code when it has none, and refuses when it has more than one.
 The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
 - `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
   Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.
@@ -92,6 +101,7 @@ The extension re-exports `pi.mjs` from the pinned copy and runs the same checks 
 - `agent_before_settle`: the full tier; findings go back as a hidden message with one more turn, and after that one retry the user sees what is still failing.
 
 pi loads a project extension only once the project is trusted (`/trust`, or `-a` for one run).
+Once it has seen `loop.json`, the extension keeps checking until pi restarts, so a command that deletes `loop.json` cannot switch it off; the same holds for the opencode plugin.
 The file is git-excluded and protected like the rest of the setup.
 
 ## opencode
@@ -109,6 +119,20 @@ opencode gives plugins no way to show the user a notice, so what pi and Claude C
 With `--auto`, opencode approves every question itself, the guard's included.
 opencode 1.x plugins cannot ask the user, so the loop needs opencode 2.
 
+## GitHub Copilot CLI
+
+`codemyrules install <project-dir> --harness copilot` writes `.github/hooks/codemyrules.json`, Copilot CLI hooks in the camelCase format; harnesses combine as with pi (`--harness claude,copilot`).
+Each hook runs `codemyrules hook copilot <event>` from the pinned copy, with the project root as its folder:
+- `preToolUse` on `edit` and `create`: the guard; a flagged edit returns `permissionDecision: "ask"` with the reason, and Copilot asks the user.
+  In autopilot mode and in the cloud agent, Copilot treats "ask" as "deny".
+- `preToolUse`, `postToolUse` and `postToolUseFailure` on `bash` and `powershell`: the shell guard; its message to undo the change goes back as `additionalContext`.
+- `postToolUse` on `edit` and `create`: the fast tier; findings go back as `additionalContext`.
+- `agentStop`: the full tier; findings go back once with `decision: "block"`, which starts one more turn, and after that one retry the user sees what is still failing (stderr with exit code 2).
+
+A hook that runs past its timeout lets the tool call through, so the guard fails open on a timeout (10 s).
+The hooks file is git-excluded, so the cloud agent, which reads only committed hooks, does not run the loop.
+Edits through other tools (for example `apply_patch`, if a model gets it) are not checked and not recorded for the end-of-turn check.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -120,14 +144,19 @@ Everything lives in the project, private to the user who installed it:
 | `.claude/codemyrules/loop.json` | the linters per tier and the protected paths |
 | `.claude/codemyrules/failures.log` | one JSON line per blocking finding: time, event (`edit` or `turn`), rule, file, line |
 | `.claude/codemyrules/baseline.json` | doc tokens, rules and open hits when the loop was installed |
-| `.claude/codemyrules/turn-*.txt`, `shell-*.json`, `hash-cache.json` | runtime state: the files edited this turn, the snapshot around a shell command, and the hashes it reuses; left-overs older than a day are deleted |
+| `.claude/codemyrules/turn-*.txt`, `turn-*.base`, `turn-*.retry`, `hash-cache.json` | runtime state: the files edited this turn, the commit the turn started from, the mark that the turn was sent back, and the hashes the shell guard reuses; left-overs older than a day are deleted |
+| `.git/codemyrules/shell-*.json` | the snapshot around a shell command, outside the work tree; left-overs older than a day are deleted |
 | `.claude/settings.local.json` | the six hook entries |
 | `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
 | `.opencode/plugins/codemyrules.js` | with `--harness opencode`: the opencode plugin, a one-line re-export of the pinned `opencode.mjs` |
+| `.github/hooks/codemyrules.json` | with `--harness copilot`: the Copilot CLI hooks, each running the pinned `copilot.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
-Each entry runs `node "<project>/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs" hook <name>`.
+Each entry runs `node "$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs" hook <name>`, so the project folder can move.
+Claude Code treats a hook that crashes as a non-blocking error and lets the tool call through.
+So the guard and shell guard entries end with `|| { echo '...' >&2; exit 2; }`: when the pinned copy is missing or broken, the edit or command is blocked and the agent is told to ask for a reinstall.
+The lint entries do not: a lint run that cannot start never blocks, and a blocked stop the agent cannot fix would never end.
 The installer copies the package it finds through the `codemyrules` command on `PATH` (the global install) and refuses to install without it.
 The copy sits in the setup folder, so the guard asks before any edit to it, and the shell guard catches a command that changes it.
 
@@ -155,6 +184,7 @@ A rule that never fails after its doc lines were removed has paid off.
 ## Uninstall
 
 `codemyrules uninstall <project-dir>` shows what it removes, and with `--apply` removes it: `.claude/codemyrules/` (with the failure log and the baseline) and codemyrules' own entries in `.claude/settings.local.json`, keeping every other hook.
+A `.claude/` folder that held nothing else is removed too.
 When no other project uses it, `npm uninstall -g codemyrules` removes the package.
 The two lines in `.git/info/exclude` are harmless and can stay or go.
 

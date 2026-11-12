@@ -75,7 +75,22 @@ The skill installs the feedback loop as an opencode plugin in `.opencode/plugins
 </details>
 
 <details>
-<summary><strong>Codex, Copilot, Cursor and others</strong></summary>
+<summary><strong>GitHub Copilot CLI</strong></summary>
+
+```bash
+npx skills add clirimajeti/codemyrules -a github-copilot
+npx skills add clirimajeti/eslint-pattern-rules -a github-copilot
+npx skills add clirimajeti/backend-pattern-rules -a github-copilot
+```
+
+Then ask in your own words, as above.
+The skill installs the feedback loop as Copilot CLI hooks in `.github/hooks/codemyrules.json`.
+Copilot runs repository hooks only in a trusted folder: trust the project when Copilot asks, or add it to `trustedFolders` in `~/.copilot/config.json`.
+
+</details>
+
+<details>
+<summary><strong>Codex, Cursor and others</strong></summary>
 
 ```bash
 npx skills add clirimajeti/codemyrules
@@ -84,7 +99,7 @@ npx skills add clirimajeti/backend-pattern-rules
 ```
 
 The rules and the doc cleanup work in every harness.
-The feedback loop runs only in Claude Code, pi and opencode, see [Harness support](#harness-support).
+The feedback loop runs only in Claude Code, pi, opencode and the GitHub Copilot CLI, see [Harness support](#harness-support).
 
 </details>
 
@@ -100,8 +115,9 @@ codemyrules install . --config loop.json           # dry run: shows the plan and
 codemyrules install . --config loop.json --apply   # installs it
 ```
 
-Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin.
-With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, or a comma-separated list such as `claude,pi` for several.
+Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin, `.github/hooks/` or `.github/copilot-instructions.md` Copilot CLI hooks.
+A `.claude/` folder that holds only codemyrules' own setup does not count.
+With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, `copilot`, or a comma-separated list such as `claude,pi` for several.
 
 `loop.json` names your linters per tier and the files the guard protects:
 
@@ -117,7 +133,7 @@ With none of them it installs for Claude Code, and with more than one it asks yo
 
 The installer checks the config and refuses a broken one before it writes anything.
 Formats are `eslint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
-It needs Node 22 or later and Claude Code, pi or opencode 2.
+It needs Node 22 or later and Claude Code, pi, opencode 2 or the GitHub Copilot CLI.
 
 </details>
 
@@ -227,7 +243,7 @@ Three tiers, each silent when clean:
   A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
   A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
-  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`; in opencode, the plugin into `.opencode/plugins/codemyrules.js`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
+  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`; in opencode, the plugin into `.opencode/plugins/codemyrules.js`; in the Copilot CLI, the hooks into `.github/hooks/codemyrules.json`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
 - **Pinned per project.**
@@ -245,11 +261,15 @@ Three tiers, each silent when clean:
 | Claude Code | yes | yes, through hooks |
 | [pi](https://github.com/earendil-works/pi-coding-agent) | yes | yes, through a project extension (`codemyrules install . --harness pi --apply`) |
 | [opencode](https://opencode.ai) 2 | yes | yes, through a project plugin (`codemyrules install . --harness opencode --apply`) |
-| Codex, Copilot, Cursor and others | yes | not yet |
+| [GitHub Copilot CLI](https://github.com/github/copilot-cli) | yes | yes, through project hooks (`codemyrules install . --harness copilot --apply`) |
+| Codex, Cursor and others | yes | not yet |
 
 In pi the guard asks through pi's own confirm dialog; in print or JSON mode, with nobody to ask, a flagged edit is refused.
 pi loads project extensions only in a trusted project (`/trust`, or `-a` for one run).
 In opencode the guard asks through opencode's own permission prompt; in `opencode run`, with nobody to ask, a flagged edit is refused, and `--auto` approves it like any other question.
+In the Copilot CLI the guard asks through Copilot's own permission prompt; in autopilot mode and in the Copilot cloud agent, with nobody to ask, Copilot refuses a flagged edit.
+The hooks file is git-excluded, so the Copilot cloud agent does not run the loop.
+The Copilot CLI skips repository hooks in a folder that is not trusted, and then says so in a warning.
 Support for Codex and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 
@@ -278,6 +298,7 @@ skills/codemyrules/
     ├── lint-turn.mjs           # Claude Code adapter: Stop hook, all tiers
     ├── pi.mjs                  # pi adapter: extension with the guard, shell guard and both tiers
     ├── opencode.mjs            # opencode adapter: plugin with the guard, shell guard and both tiers
+    ├── copilot.mjs             # GitHub Copilot CLI adapter: hooks with the guard, shell guard and both tiers
     └── test/                   # node:test suites, and release-check.mjs
 evals/                          # claude plugin eval cases for the skill
 scripts/eval.sh                 # runs them, with the two sub-skill plugins staged next to it
@@ -287,7 +308,10 @@ Run the tests with `npm test`.
 Before a release, `npm run release-check` packs the package, installs it into a throwaway npm prefix and drives a few headless Claude Code sessions (Haiku) against it in a throwaway repo; it needs `claude` logged in and takes about a minute.
 To run the hooks from a working copy, run `npm link` in the repository root: the global `codemyrules` command then points at it, and a reinstall in a test project pins a copy of it (reinstall after each change).
 `npm run eval` runs the skill's eval cases with `claude plugin eval` (pass `-- --runs 3` and the like through); it copies the two sibling sub-skill checkouts into `.eval-deps/` first, because an eval loads no other plugins.
-A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match), runs `npm publish`, and only then pushes, so the skill never names an unpublished version.
+A release bumps the version in `package.json`, `.claude-plugin/plugin.json` and `SKILL.md` (a test checks they match) and pushes that commit.
+Once the test workflow is green on Linux, macOS and Windows, `npm publish` follows (it runs `npm test` first and stops when a test fails), and then the tag: `git tag v<version> && git push origin v<version>`.
+For the minute between the push and the publish the skill names a version that npm does not have yet.
+
 ## Flowchart
 
 ```mermaid

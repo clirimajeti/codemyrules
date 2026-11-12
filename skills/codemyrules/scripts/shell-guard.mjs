@@ -8,7 +8,7 @@ import { changeBlock, checkChanges, installerNotice, takeSnapshot } from './core
 
 // one hook call; returns the exit code
 export async function main(input) {
-  const cwd = fs.realpathSync(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
+  const cwd = fs.realpathSync.native(process.env.CLAUDE_PROJECT_DIR ?? input.cwd ?? process.cwd());
   if (input.hook_event_name === 'PreToolUse') {
     for (const n of takeSnapshot(cwd, input.tool_use_id)) console.log(n);
     return 0;

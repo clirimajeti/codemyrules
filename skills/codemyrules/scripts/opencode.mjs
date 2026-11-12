@@ -50,8 +50,10 @@ export default {
   id: 'codemyrules',
   async setup(ctx) {
     // the hooks run in the project root, with symlinks resolved: linters report resolved paths
-    const cwd = fs.realpathSync(ctx.location.directory);
-    const installed = () => fs.existsSync(path.join(cwd, CONFIG_DIR, 'loop.json'));
+    const cwd = fs.realpathSync.native(ctx.location.directory);
+    // once seen, the project stays installed for this process: a command that deletes loop.json must not switch the checks off
+    let seen = false;
+    const installed = () => (seen ||= fs.existsSync(path.join(cwd, CONFIG_DIR, 'loop.json')));
     const edits = new Map(); // tool call id -> its edit or write input, from execute.before
     const touched = new Map(); // tool call id -> the files its edit permission named
     const held = new Map(); // session id -> messages for the agent that had no tool result to go into

@@ -392,3 +392,11 @@ test('runLinters skips a linter with a cwd when none of the files are inside it'
     assert.deepEqual(runLinters(dir, [l], ['packages/api/b.ts']), { findings: [], notes: [] });
   });
 });
+
+test('formatFindings sends one line per finding, cut at 1000 characters', () => {
+  const long = { file: 'a.ts', line: 1, ruleId: 'r', message: `${'x'.repeat(5000)}\nsecond line`, severity: 'error' };
+  const [first] = formatFindings([long]).split('\n');
+  assert.equal(first, `a.ts:1 r ${'x'.repeat(1000)}…`);
+  assert.ok(!formatFindings([long]).includes('second line'));
+  assert.equal(formatFindings([{ ...long, message: 'short\nmore' }]).split('\n')[0], 'a.ts:1 r short');
+});
