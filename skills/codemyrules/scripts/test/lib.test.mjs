@@ -110,9 +110,9 @@ test('parseLinterOutput oxlint without labels gives line 0', () => {
 });
 
 test('parseLinterOutput oxlint in a package folder maps files to the project root', () => {
-  const out = JSON.stringify({ diagnostics: [{ code: 'typescript-eslint(no-explicit-any)', message: 'm', severity: 'error', filename: 'src/b.ts', labels: [{ span: { line: 4 } }] }] });
+  const out = JSON.stringify({ diagnostics: [{ code: 'typescript(no-explicit-any)', message: 'm', severity: 'error', filename: 'src/b.ts', labels: [{ span: { line: 4 } }] }] });
   const [f] = parseLinterOutput('oxlint', out, path.resolve('/repo'), path.resolve('/repo/frontend'));
-  assert.deepEqual(f, { file: 'frontend/src/b.ts', line: 4, ruleId: 'typescript-eslint/no-explicit-any', message: 'm', severity: 'error' });
+  assert.deepEqual(f, { file: 'frontend/src/b.ts', line: 4, ruleId: 'typescript/no-explicit-any', message: 'm', severity: 'error' });
 });
 
 test('onChangedLines keeps only errors on changed lines', () => {
@@ -120,6 +120,20 @@ test('onChangedLines keeps only errors on changed lines', () => {
   const changed = new Map([['a.ts', [[4, 5]]], ['n.ts', 'all']]);
   const out = onChangedLines([mk('a.ts', 4), mk('a.ts', 6), mk('a.ts', 4, 'warning'), mk('n.ts', 99), mk('n.ts', 1, 'warning'), mk('z.ts', 1)], changed);
   assert.deepEqual(out.map((f) => `${f.file}:${f.line}`), ['a.ts:4', 'n.ts:99']);
+});
+
+test('onChangedLines keeps a file-level error (line 0) in a changed file, such as a crashing JS-plugin rule', () => {
+  const crash = { file: 'a.ts', line: 0, ruleId: 'oxlint', message: 'Error running JS plugin.', severity: 'error' };
+  assert.deepEqual(onChangedLines([crash, { ...crash, file: 'z.ts' }], new Map([['a.ts', [[4, 5]]]])), [crash]);
+});
+
+test('parseLinterOutput oxlint reads past the "No files found" line before the JSON', () => {
+  const out = 'No files found to lint. Please check your paths and ignore patterns.\n{ "diagnostics": [], "number_of_files": 0 }';
+  assert.deepEqual(parseLinterOutput('oxlint', out, path.resolve('/repo')), []);
+});
+
+test('parseLinterOutput names the first line of output that is not JSON', () => {
+  assert.throws(() => parseLinterOutput('oxlint', 'Failed to parse oxlint configuration file.\n\n  x bad', path.resolve('/repo')), /^Error: Failed to parse oxlint configuration file\.$/);
 });
 
 test('runLinters reports a missing command as a note', () => {
