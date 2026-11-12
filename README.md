@@ -15,7 +15,7 @@ A lint rule costs nothing until it is broken, and then it says exactly what is w
 codemyrules finds the conventions your code and docs already state, writes them as lint rules, slims the agent docs those rules now cover, and lets the agent meet the rules while it codes.
 
 - **Finds your rules** - majority patterns in your code, your decision records (ADRs), and the rules written as prose in your agent docs.
-- **Whole stack** - ESLint for JavaScript, TypeScript, Vue and Svelte; ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby.
+- **Whole stack** - ESLint or oxlint for JavaScript, TypeScript, Vue and Svelte (Biome not yet); ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby.
 - **Slimmer agent docs** - every doc line a new rule covers can be deleted, shortened to a pointer, or kept.
 - **Silent feedback loop** - the agent sees a broken rule seconds after it writes the code, not days later in review; a passing check costs no tokens.
 - **Asks first** - no rule, config change, doc edit, hook or baseline is written without your yes.
@@ -132,7 +132,7 @@ With none of them it installs for Claude Code, and with more than one it asks yo
 ```
 
 The installer checks the config and refuses a broken one before it writes anything.
-Formats are `eslint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
+Formats are `eslint`, `oxlint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
 It needs Node 22 or later and Claude Code, pi, opencode 2 or the GitHub Copilot CLI.
 
 </details>
@@ -232,7 +232,7 @@ Three tiers, each silent when clean:
 
 | Tier | When | What runs |
 |---|---|---|
-| Fast | after every edit | ast-grep, and ESLint through `eslint_d` when you have it, on the edited file |
+| Fast | after every edit | ast-grep, oxlint, and ESLint through `eslint_d` when you have it, on the edited file |
 | Full | at the end of each turn | all configured linters on the files the agent edited in this turn |
 | Safety net | CI | your own lint run, including slow JVM tools like detekt |
 
