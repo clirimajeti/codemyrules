@@ -35,9 +35,10 @@ test('each suppression form is detected', () => {
     '[assembly: SuppressMessage("x", "y")]', '@file:Suppress("x")', '@SuppressFBWarnings("x")', '# rubocop:disable Style/Foo',
     '# rubocop:todo Style/Foo', '// @phpstan-ignore-next-line', '/** @psalm-suppress Foo */', '// phpcs:ignore', '// phpcs:disable',
     '/* tslint:disable */', '//lint:ignore SA1000 reason',
+    '// oxlint-disable-next-line no-console', '/* oxlint-disable */', 'x(); // oxlint-disable-line local/gen-x',
   ];
   for (const f of forms) assert.equal(suppressionLines(f).length, 1, f);
-  for (const f of ['const eslint = 1;', '// eslint is great', 'allow(x)', 'notanoqa', 'class SuppressMessages {}', 'lint(x)']) assert.deepEqual(suppressionLines(f), [], f);
+  for (const f of ['const eslint = 1;', '// eslint is great', 'allow(x)', 'notanoqa', 'class SuppressMessages {}', 'lint(x)', '/* oxlint-enable no-console */', 'const oxlint = 1;']) assert.deepEqual(suppressionLines(f), [], f);
 });
 
 test('Edit adding a suppression is flagged, an unchanged suppression line is not', () => {

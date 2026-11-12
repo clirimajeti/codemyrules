@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CONFIG_DIR, HARNESS_FILES, isSecretFile, matchesPattern, readLoopConfig, realPath } from './lib.mjs';
 
 export const SUPPRESSION = new RegExp([
-  /eslint-disable/, /\/[*/]\s*eslint\s+[@\w/-]+\s*:/, // inline ESLint config: /* eslint no-console: "off" */
+  /eslint-disable/, /oxlint-disable/, /\/[*/]\s*eslint\s+[@\w/-]+\s*:/, // inline ESLint config: /* eslint no-console: "off" */
   /@ts-ignore/, /@ts-nocheck/, /@ts-expect-error/, /tslint:disable/, /biome-ignore/,
   /@(?:file:)?Suppress\w*/, /\[\s*(?:assembly:\s*)?SuppressMessage/, /#pragma\s+warning\s+disable/, /NOSONAR/,
   /#.*\b[Nn][Oo][Qq][Aa]\b/, /#\s*type:\s*ignore/, /pylint:\s*(?:disable|skip-file)/, /#\s*pyright:/, /#\s*mypy:/,

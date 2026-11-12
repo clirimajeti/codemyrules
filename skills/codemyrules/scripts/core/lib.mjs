@@ -153,11 +153,24 @@ const parsers = {
     file: relFile(cwd, m.filename, base), line: m.location.row, ruleId: m.code,
     message: m.message, severity: 'error',
   })),
+  // code is "plugin(rule)": eslint(no-console), local(gen-x); a finding without a label has no line
+  oxlint: (data, cwd, base) => data.diagnostics.map((d) => ({
+    file: relFile(cwd, d.filename, base), line: d.labels?.[0]?.span?.line ?? 0,
+    ruleId: String(d.code ?? 'oxlint').replace(/^(.+?)\((.+)\)$/, '$1/$2'),
+    message: d.message, severity: d.severity === 'error' ? 'error' : 'warning',
+  })),
 };
 
 // base: the folder the linter ran in, when it is not the project root
 export function parseLinterOutput(format, stdout, cwd, base = cwd) {
-  return parsers[format](JSON.parse(stdout), cwd, base);
+  // oxlint prints "No files found to lint..." before its JSON when every file is ignored
+  const text = format === 'oxlint' ? stdout.slice(Math.max(0, stdout.indexOf('{'))) : stdout;
+  let data;
+  try { data = JSON.parse(text); } catch {
+    // the linter's own reason, such as a config it cannot parse, instead of a JSON syntax error
+    throw new Error(stdout.split('\n').map((l) => l.trim()).find(Boolean) ?? 'no output');
+  }
+  return parsers[format](data, cwd, base);
 }
 
 export function onChangedLines(findings, changed) {
@@ -166,7 +179,8 @@ export function onChangedLines(findings, changed) {
     if (f.severity !== 'error') return false;
     const ranges = changed.get(f.file);
     if (ranges === 'all') return true;
-    return !!ranges && ranges.some(([a, b]) => f.line >= a && f.line <= b);
+    // line 0 is about the whole file (a rule that crashed on it), so it counts once the file changed
+    return !!ranges && (f.line === 0 || ranges.some(([a, b]) => f.line >= a && f.line <= b));
   });
 }
 

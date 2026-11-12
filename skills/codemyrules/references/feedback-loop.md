@@ -52,7 +52,7 @@ Outside a git repository the hooks do nothing.
 A `PreToolUse` hook on `Edit|Write|MultiEdit` checks each edit before it happens.
 It turns these into a permission prompt (`permissionDecision: "ask"`), so only the user can approve them:
 - an edit that adds or changes a line with an ignore comment:
-  - JS/TS: `eslint-disable`, an inline `/* eslint rule: "off" */`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `tslint:disable`, `biome-ignore`
+  - JS/TS: `eslint-disable`, `oxlint-disable`, an inline `/* eslint rule: "off" */`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `tslint:disable`, `biome-ignore`
   - JVM and C#: `@Suppress…` (also `@file:Suppress`), `[SuppressMessage(`, `#pragma warning disable`, `NOSONAR`
   - Python: `# noqa`, `# type: ignore`, `pylint: disable` and `skip-file`, `# pyright:`, `# mypy:`
   - Go, Rust, C/C++: `//nolint`, `//lint:ignore`, `NOLINT`, `#[allow(`, `#![allow(`

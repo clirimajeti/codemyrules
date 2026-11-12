@@ -110,6 +110,11 @@ test('validateLoopConfig accepts a valid config and an empty one', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('validateLoopConfig accepts the oxlint format', () => {
+  const oxlint = { name: 'oxlint', format: 'oxlint', command: ['node', 'node_modules/oxlint/bin/oxlint', '--format', 'json', '{files}'], extensions: ['.ts'], tier: 'fast' };
+  assert.deepEqual(validateLoopConfig({ linters: [oxlint], protect: [] }, os.tmpdir()), []);
+});
+
 test('validateLoopConfig names every broken field', () => {
   const dir = os.tmpdir();
   const errs = validateLoopConfig({

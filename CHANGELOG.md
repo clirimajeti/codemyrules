@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- oxlint frontends: codemyrules routes them to eslint-pattern-rules, which builds rules as oxlint JS plugins; the loop reads oxlint's JSON output (format `oxlint`), protects oxlint configs and counts `oxlint-disable` comments as suppressions.
 - GitHub Copilot CLI support: `codemyrules install` writes project hooks to `.github/hooks/codemyrules.json` that run the guard, the shell guard and both lint tiers.
 - The installer detects Copilot projects from `.github/hooks/` or `.github/copilot-instructions.md`, and `status` and `uninstall` handle the Copilot hooks.
 - `npm publish` runs the tests first, and the README documents the release order: push, green CI, publish, tag.

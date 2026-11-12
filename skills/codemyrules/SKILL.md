@@ -43,7 +43,9 @@ Do not look for it elsewhere: a copy of the same repository in another folder is
 
 Look these up rather than asking:
 - **JS/TS**: `package.json`, `tsconfig.json`, `.vue`, `.svelte`, `.ts`, `.js` sources, and where they live (`frontend/`, `apps/web/`, the root).
-  Goes to `eslint-pattern-rules`.
+  Note its linter: ESLint (`eslint.config.*`, `.eslintrc*`), oxlint (`.oxlintrc.json`, `.oxlintrc.jsonc`, `oxlint.config.ts`, `oxlint` in the lint script), or Biome (`biome.json`, `biome.jsonc`).
+  ESLint or oxlint goes to `eslint-pattern-rules`, which takes the ESLint path whenever the project runs ESLint at all.
+  Biome is not supported yet: build nothing for that stack and say so in the report.
 - **Other backend languages**: `pom.xml`, `build.gradle(.kts)`, `pyproject.toml`, `go.mod`, `*.csproj`, `composer.json`, `Cargo.toml`, `Gemfile`.
   Goes to `backend-pattern-rules`.
 - **Generated code**: generator markers such as `.yo-rc.json`, `.jhipster/`, `.openapi-generator/`, `@Generated`, or `DO NOT EDIT` headers.
@@ -135,25 +137,27 @@ Draft the config in a temporary file outside the project, as `loop.json`:
   "linters": [
     { "name": "ast-grep", "format": "ast-grep", "command": ["node_modules/.bin/ast-grep", "scan", "-c", "sgconfig.suggestions.yml", "--json=compact", "{files}"], "extensions": [".kt", ".java"], "tier": "fast" },
     { "name": "eslint", "format": "eslint", "command": ["node_modules/.bin/eslint", "-c", "eslint.config.suggestions.mjs", "--format", "json", "{files}"], "extensions": [".ts", ".vue"], "tier": "full" },
-    { "name": "ruff", "format": "ruff", "command": ["ruff", "check", "--output-format=json", "{files}"], "extensions": [".py"], "tier": "full" }
+    { "name": "ruff", "format": "ruff", "command": ["ruff", "check", "--output-format=json", "{files}"], "extensions": [".py"], "tier": "full" },
+    { "name": "oxlint", "format": "oxlint", "command": ["node_modules/.bin/oxlint", "-c", ".oxlintrc.suggestions.json", "--format", "json", "{files}"], "extensions": [".ts", ".tsx"], "tier": "fast", "cwd": "frontend" }
   ],
-  "protect": ["**/eslint.config.*", "**/.eslintrc*", "sgconfig*.yml", "ast-grep/**", "eslint-rules/**", "**/detekt-baseline.xml"]
+  "protect": ["**/eslint.config.*", "**/.eslintrc*", "**/.oxlintrc*", "**/oxlint.config.*", "sgconfig*.yml", "ast-grep/**", "eslint-rules/**", "**/oxlint-rules/**", "**/detekt-baseline.xml"]
 }
 ```
 
 - **Fast tier**: ast-grep only when the project has an `sgconfig.yml` (or the command passes `-c <path>` to one), run the way the project runs it; without one every scan fails, so leave ast-grep out, and the installer refuses such a config; ESLint only through `eslint_d` when the project has it (`["eslint_d", "--format", "json", "{files}"]`).
+  oxlint qualifies as an installed binary (`node_modules/.bin/oxlint`, format `oxlint`).
   Only an installed binary: `node_modules/.bin/ast-grep` or `ast-grep` on `PATH`.
   A package runner (`npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`) resolves the package on every edit, about 0.4 s warm and seconds or a download cold, and a run past the time budget counts as clean, so the installer refuses one in the fast tier.
-- **Full tier**: ESLint, ast-grep and Ruff, each only when the project runs it; ast-grep here when the project runs it only through a package runner.
+- **Full tier**: ESLint, ast-grep, Ruff and oxlint (only through a package runner), each only when the project runs it; ast-grep here when the project runs it only through a package runner.
   Through `npx`, name the package `@ast-grep/cli` with `-p` and pin the version the project uses: `npx ast-grep` alone resolves an unrelated npm package.
   The end-of-turn check runs both tiers, so list each linter once, in the fastest tier it qualifies for.
 - **Never**: Gradle detekt, Error Prone, or any tool that starts a JVM build; those stay in CI.
-- **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.
+- **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, `-c .oxlintrc.suggestions.json`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.
 - `command` is the project's own invocation with JSON output, and `"{files}"` is its own element.
   `extensions` are the file types that linter covers in this project.
 - **Monorepos**: when a linter and its config live in one package (`apps/web/` with its own `node_modules` and `eslint.config.mjs`), add `"cwd": "apps/web"` and write `command` as it runs from there; list one entry per package that lints differently.
   The linter then starts in that folder and gets only the edited files inside it, so another package's files never reach the wrong config.
-- `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`), rule folders (`eslint-rules/**`, `ast-grep/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
+- `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `.oxlintrc*`, `oxlint.config.*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`), rule folders (`eslint-rules/**`, `oxlint-rules/**`, `ast-grep/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
   Leave out shared build files such as `package.json`, `pom.xml` or `pyproject.toml`, where an ask on every edit would be noise: the guard already asks for edits to the lint settings inside `package.json`, `pyproject.toml`, `setup.cfg` and `tox.ini`; mention in the report that lint settings inside other build files, such as plugin config in `pom.xml` or `build.gradle`, are not guarded.
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
 
