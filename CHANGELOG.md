@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-12
+
 ### Added
 
 - oxlint frontends: codemyrules routes them to eslint-pattern-rules, which builds rules as oxlint JS plugins; the loop reads oxlint's JSON output (format `oxlint`), protects oxlint configs and counts `oxlint-disable` comments as suppressions.
