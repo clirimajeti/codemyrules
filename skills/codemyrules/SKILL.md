@@ -38,6 +38,9 @@ With nobody to answer and no such word, use manual and build nothing that needs 
 
 ## 1. Detect the stacks
 
+The project is the current working directory, unless the user names another folder.
+Do not look for it elsewhere: a copy of the same repository in another folder is not the project.
+
 Look these up rather than asking:
 - **JS/TS**: `package.json`, `tsconfig.json`, `.vue`, `.svelte`, `.ts`, `.js` sources, and where they live (`frontend/`, `apps/web/`, the root).
   Goes to `eslint-pattern-rules`.
