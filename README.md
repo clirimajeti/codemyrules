@@ -85,6 +85,7 @@ npx skills add clirimajeti/backend-pattern-rules -a github-copilot
 
 Then ask in your own words, as above.
 The skill installs the feedback loop as Copilot CLI hooks in `.github/hooks/codemyrules.json`.
+Copilot runs repository hooks only in a trusted folder: trust the project when Copilot asks, or add it to `trustedFolders` in `~/.copilot/config.json`.
 
 </details>
 
@@ -268,6 +269,7 @@ pi loads project extensions only in a trusted project (`/trust`, or `-a` for one
 In opencode the guard asks through opencode's own permission prompt; in `opencode run`, with nobody to ask, a flagged edit is refused, and `--auto` approves it like any other question.
 In the Copilot CLI the guard asks through Copilot's own permission prompt; in autopilot mode and in the Copilot cloud agent, with nobody to ask, Copilot refuses a flagged edit.
 The hooks file is git-excluded, so the Copilot cloud agent does not run the loop.
+The Copilot CLI skips repository hooks in a folder that is not trusted, and then says so in a warning.
 Support for Codex and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 

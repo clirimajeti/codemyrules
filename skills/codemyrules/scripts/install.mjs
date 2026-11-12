@@ -313,6 +313,13 @@ export function main(args) {
     console.error('codemyrules: the hooks run the codemyrules npm package, which is not installed globally. Install it with: npm install -g codemyrules');
     return 1;
   }
+  // the hooks run the pinned copy of that package, so it must have the adapter of every harness installed for
+  const lacking = harnesses.filter((h) => EXTENSIONS[h] && !fs.existsSync(path.join(path.dirname(cli), EXTENSIONS[h].adapter)));
+  if (lacking.length) {
+    const version = readJson(path.join(packageRoot(cli), 'package.json'))?.version ?? 'unknown';
+    console.error(`codemyrules: the package the hooks would run (codemyrules ${version}, ${packageRoot(cli)}) has no ${lacking.join(' or ')} support; nothing written. Update it: npm install -g codemyrules@latest`);
+    return 1;
+  }
   return carryOut(plan(projectDir, cfg, cli, harnesses), apply);
 }
 
@@ -386,7 +393,7 @@ export function status(args) {
   const copyHooks = commands.filter((c) => !/cli\.mjs" hook \w+/.test(c)).length;
   const missing = targets.filter((t) => !fs.existsSync(t));
   if (targets.length === 1 && !missing.length && !copyHooks) console.log(`hooks: ${commands.length} entries, all run ${targets[0]}`);
-  else {
+  else if (commands.length) {
     console.log(`hooks: ${commands.length} entries`);
     for (const t of targets) console.log(`  ${missing.includes(t) ? 'missing' : 'runs'}: ${t}`);
     if (copyHooks) console.log(`  ${copyHooks} run copies from before the npm package; reinstall to replace them`);

@@ -295,6 +295,21 @@ test('without --cli the installer pins the global npm package, and without one i
   assert.equal(fs.readFileSync(path.join(dir, '.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs'), 'utf8'), fs.readFileSync(cli, 'utf8'));
 });
 
+test('a package without the adapter of a requested harness is refused, so no hook runs a missing file', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const pkg = fakePackage(t, '0.8.0');
+  fs.rmSync(path.join(path.dirname(pkg.cli), 'copilot.mjs'));
+  const r = spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, '--harness', 'claude,copilot', '--apply'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /codemyrules 0\.8\.0.*has no copilot support; nothing written\. Update it: npm install -g codemyrules@latest/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, '--harness', 'pi', '--apply'], { encoding: 'utf8' }).status, 0);
+  // status names the pi extension, and no Claude Code hooks line for a project without them
+  const s = spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout;
+  assert.match(s, /^pi: /m);
+  assert.doesNotMatch(s, /^hooks:/m);
+});
+
 // a package checkout to pin, so a test can change it like a new release
 function fakePackage(t, version) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-pkg-'));
