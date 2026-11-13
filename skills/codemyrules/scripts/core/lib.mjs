@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import * as psa from './psscriptanalyzer.mjs';
 
 export const CONFIG_DIR = '.claude/codemyrules';
 export const SETTINGS_FILE = '.claude/settings.local.json';
@@ -159,6 +160,7 @@ const parsers = {
     ruleId: String(d.code ?? 'oxlint').replace(/^(.+?)\((.+)\)$/, '$1/$2'),
     message: d.message, severity: d.severity === 'error' ? 'error' : 'warning',
   })),
+  [psa.FORMAT]: (data, cwd, base) => psa.findings(data).map((f) => ({ ...f, file: relFile(cwd, f.file, base) })),
 };
 
 // base: the folder the linter ran in, when it is not the project root

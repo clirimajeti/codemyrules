@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import * as psa from './core/psscriptanalyzer.mjs';
 import { CONFIG_DIR, COPILOT_HOOKS, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
@@ -193,7 +194,7 @@ export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
   return items;
 }
 
-const FORMATS = ['eslint', 'ast-grep', 'ruff', 'oxlint'];
+const FORMATS = ['eslint', 'ast-grep', 'ruff', 'oxlint', psa.FORMAT];
 const TIERS = ['fast', 'full'];
 const isStrList = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
@@ -243,6 +244,7 @@ export function validateLoopConfig(cfg, projectDir) {
     if (runner && l.tier === 'fast') {
       errs.push(`${at}: runs through "${runner}", which resolves the package on every edit (about 0.4 s with a warm cache, seconds or a download when cold, and a run past the 10 s limit counts as clean). Use the installed binary (node_modules/.bin/<tool>, or the tool on PATH), or move it to the full tier`);
     }
+    if (l.format === psa.FORMAT) errs.push(...psa.validate(l, at, (f) => fs.existsSync(path.resolve(base, f))));
     if (isStrList(l.command)) {
       l.command.forEach((c, j) => {
         const file = (c === '-c' || c === '--config') ? l.command[j + 1] : undefined;

@@ -15,7 +15,7 @@ A lint rule costs nothing until it is broken, and then it says exactly what is w
 codemyrules finds the conventions your code and docs already state, writes them as lint rules, slims the agent docs those rules now cover, and lets the agent meet the rules while it codes.
 
 - **Finds your rules** - majority patterns in your code, your decision records (ADRs), and the rules written as prose in your agent docs.
-- **Whole stack** - ESLint or oxlint for JavaScript, TypeScript, Vue and Svelte (Biome not yet); ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby.
+- **Whole stack** - ESLint or oxlint for JavaScript, TypeScript, Vue and Svelte (Biome not yet); ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby; PSScriptAnalyzer for PowerShell.
 - **Slimmer agent docs** - every doc line a new rule covers can be deleted, shortened to a pointer, or kept.
 - **Silent feedback loop** - the agent sees a broken rule seconds after it writes the code, not days later in review; a passing check costs no tokens.
 - **Asks first** - no rule, config change, doc edit, hook or baseline is written without your yes.
@@ -132,7 +132,7 @@ With none of them it installs for Claude Code, and with more than one it asks yo
 ```
 
 The installer checks the config and refuses a broken one before it writes anything.
-Formats are `eslint`, `oxlint`, `ast-grep` and `ruff`, and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
+Formats are `eslint`, `oxlint`, `ast-grep`, `ruff` and `psscriptanalyzer` (PowerShell 7, full tier only), and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
 It needs Node 22 or later and Claude Code, pi, opencode 2 or the GitHub Copilot CLI.
 
 </details>
@@ -207,7 +207,7 @@ The [flowchart](#flowchart) at the end shows the same steps.
    Automatic builds every recommended rule and asks only for doc changes, doc-vs-code contradictions and high-risk rules.
    Manual shows every candidate in one selection, recommended ones marked, and builds only what you pick.
 4. **Builds each pick** through the sub-skill that owns its stack: design questions, the rule and its tests, verification on your real code.
-   It first checks which tools the project already uses, and writes the rule there, in their style: ESLint, detekt, Ruff, or an existing ArchUnit or Konsist test class; ast-grep only when none of them fits.
+   It first checks which tools the project already uses, and writes the rule there, in their style: ESLint, detekt, Ruff, PSScriptAnalyzer, or an existing ArchUnit or Konsist test class; ast-grep only when none of them fits.
    Then, for each line in your agent docs the new rule enforces, you choose to delete it, shorten it to a pointer, or keep it.
    A pointer you keep can move to a `CLAUDE.md` in the folder it applies to, so it loads only when the agent works there.
 5. **Sets up the feedback loop**: automatic mode installs it, manual mode asks first after showing exactly what it installs.

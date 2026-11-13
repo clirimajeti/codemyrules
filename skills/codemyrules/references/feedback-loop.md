@@ -54,6 +54,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
 - an edit that adds or changes a line with an ignore comment:
   - JS/TS: `eslint-disable`, `oxlint-disable`, an inline `/* eslint rule: "off" */`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `tslint:disable`, `biome-ignore`
   - JVM and C#: `@Suppress…` (also `@file:Suppress`), `[SuppressMessage(`, `#pragma warning disable`, `NOSONAR`
+  - PowerShell: `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(` and `[System.Diagnostics.CodeAnalysis.SuppressMessage(`
   - Python: `# noqa`, `# type: ignore`, `pylint: disable` and `skip-file`, `# pyright:`, `# mypy:`
   - Go, Rust, C/C++: `//nolint`, `//lint:ignore`, `NOLINT`, `#[allow(`, `#![allow(`
   - Ruby and PHP: `rubocop:disable` and `todo`, `@phpstan-ignore`, `@psalm-suppress`, `phpcs:ignore` and `disable`

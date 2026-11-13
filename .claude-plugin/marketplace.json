@@ -22,7 +22,7 @@
     {
       "name": "backend-pattern-rules",
       "source": { "source": "github", "repo": "clirimajeti/backend-pattern-rules" },
-      "description": "Sub-skill for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby: turns a codebase's conventions into ast-grep or native lint rules with tests.",
+      "description": "Sub-skill for Java, Kotlin, Python, Go, C#, PHP, Rust, Ruby and PowerShell: turns a codebase's conventions into ast-grep or native lint rules with tests.",
       "category": "engineering"
     }
   ]
