@@ -1,7 +1,7 @@
 ---
 name: codemyrules
-description: Turn a project's decisions, coding patterns and agent-doc instructions into lint rules across its whole stack, slim the CLAUDE.md / AGENTS.md / instructions files those rules now cover, and set up a private, silent lint feedback loop for Claude Code. Routes JS/TS/Vue/Svelte to eslint-pattern-rules and Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby to backend-pattern-rules, merges their candidates into one selection, and builds what the user picks. Use when the user wants to turn their decisions, patterns or agent docs into rules, slim or shrink CLAUDE.md or AGENTS.md, set up lint feedback for agents, or names codemyrules. Not for fixing existing lint errors or tuning an off-the-shelf linter config.
-version: "0.9.0"
+description: Turn a project's decisions, coding patterns and agent-doc instructions into lint rules across its whole stack, slim the CLAUDE.md / AGENTS.md / instructions files those rules now cover, and set up a private, silent lint feedback loop for Claude Code. Routes JS/TS/Vue/Svelte to eslint-pattern-rules and Java, Kotlin, Python, Go, C#, PHP, Rust, Ruby and PowerShell to backend-pattern-rules, merges their candidates into one selection, and builds what the user picks. Use when the user wants to turn their decisions, patterns or agent docs into rules, slim or shrink CLAUDE.md or AGENTS.md, set up lint feedback for agents, or names codemyrules. Not for fixing existing lint errors or tuning an off-the-shelf linter config.
+version: "0.9.1"
 metadata:
   author: clirimajeti <clirimajeti@gmail.com>
   tags: [lint, agent-docs, claude-md, hooks, code-quality]
@@ -15,7 +15,7 @@ This skill turns a project's conventions into rules, slims the agent docs those 
 
 It is a manager over two skills and does not repeat their work:
 - `eslint-pattern-rules`: JavaScript, TypeScript, Vue, Svelte, including Node backends.
-- `backend-pattern-rules`: Java, Kotlin, Python, Go, C#, PHP, Rust, Ruby and other languages ast-grep parses.
+- `backend-pattern-rules`: Java, Kotlin, Python, Go, C#, PHP, Rust, Ruby, PowerShell and other languages ast-grep parses.
 
 Invoke each with the Skill tool when it is installed.
 Otherwise ask the user for the path to its `SKILL.md`, read it, and follow it from there, with its `references/` beside it.
@@ -46,7 +46,7 @@ Look these up rather than asking:
   Note its linter: ESLint (`eslint.config.*`, `.eslintrc*`), oxlint (`.oxlintrc.json`, `.oxlintrc.jsonc`, `oxlint.config.ts`, `oxlint` in the lint script), or Biome (`biome.json`, `biome.jsonc`).
   ESLint or oxlint goes to `eslint-pattern-rules`, which takes the ESLint path whenever the project runs ESLint at all.
   Biome is not supported yet: build nothing for that stack and say so in the report.
-- **Other backend languages**: `pom.xml`, `build.gradle(.kts)`, `pyproject.toml`, `go.mod`, `*.csproj`, `composer.json`, `Cargo.toml`, `Gemfile`.
+- **Other backend languages**: `pom.xml`, `build.gradle(.kts)`, `pyproject.toml`, `go.mod`, `*.csproj`, `composer.json`, `Cargo.toml`, `Gemfile`, and PowerShell sources (`.ps1`, `.psm1`, a `PSScriptAnalyzerSettings.psd1`).
   Goes to `backend-pattern-rules`.
 - **Generated code**: generator markers such as `.yo-rc.json`, `.jhipster/`, `.openapi-generator/`, `@Generated`, or `DO NOT EDIT` headers.
   Note which source folders a generator owns: a rule still guards new code there, but existing hits are fixed in the generator's template or blueprint, and hand edits are lost on the next run.
@@ -138,7 +138,8 @@ Draft the config in a temporary file outside the project, as `loop.json`:
     { "name": "ast-grep", "format": "ast-grep", "command": ["node_modules/.bin/ast-grep", "scan", "-c", "sgconfig.suggestions.yml", "--json=compact", "{files}"], "extensions": [".kt", ".java"], "tier": "fast" },
     { "name": "eslint", "format": "eslint", "command": ["node_modules/.bin/eslint", "-c", "eslint.config.suggestions.mjs", "--format", "json", "{files}"], "extensions": [".ts", ".vue"], "tier": "full" },
     { "name": "ruff", "format": "ruff", "command": ["ruff", "check", "--output-format=json", "{files}"], "extensions": [".py"], "tier": "full" },
-    { "name": "oxlint", "format": "oxlint", "command": ["node_modules/.bin/oxlint", "-c", ".oxlintrc.suggestions.json", "--format", "json", "{files}"], "extensions": [".ts", ".tsx"], "tier": "fast", "cwd": "frontend" }
+    { "name": "oxlint", "format": "oxlint", "command": ["node_modules/.bin/oxlint", "-c", ".oxlintrc.suggestions.json", "--format", "json", "{files}"], "extensions": [".ts", ".tsx"], "tier": "fast", "cwd": "frontend" },
+    { "name": "psscriptanalyzer", "format": "psscriptanalyzer", "command": ["pwsh", "-NoProfile", "-NonInteractive", "-File", ".claude/codemyrules/pkg/skills/codemyrules/scripts/core/psscriptanalyzer.ps1", "-Settings", "PSScriptAnalyzerSettings.suggestions.psd1", "{files}"], "extensions": [".ps1", ".psm1"], "tier": "full" }
   ],
   "protect": ["**/eslint.config.*", "**/.eslintrc*", "**/.oxlintrc*", "**/oxlint.config.*", "sgconfig*.yml", "ast-grep/**", "eslint-rules/**", "**/oxlint-rules/**", "**/detekt-baseline.xml"]
 }
@@ -148,16 +149,18 @@ Draft the config in a temporary file outside the project, as `loop.json`:
   oxlint qualifies as an installed binary (`node_modules/.bin/oxlint`, format `oxlint`).
   Only an installed binary: `node_modules/.bin/ast-grep` or `ast-grep` on `PATH`.
   A package runner (`npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `bunx`) resolves the package on every edit, about 0.4 s warm and seconds or a download cold, and a run past the time budget counts as clean, so the installer refuses one in the fast tier.
-- **Full tier**: ESLint, ast-grep, Ruff and oxlint (only through a package runner), each only when the project runs it; ast-grep here when the project runs it only through a package runner.
+- **Full tier**: ESLint, ast-grep, Ruff, oxlint (only through a package runner) and PSScriptAnalyzer, each only when the project runs it; ast-grep here when the project runs it only through a package runner.
   Through `npx`, name the package `@ast-grep/cli` with `-p` and pin the version the project uses: `npx ast-grep` alone resolves an unrelated npm package.
   The end-of-turn check runs both tiers, so list each linter once, in the fastest tier it qualifies for.
+- **PSScriptAnalyzer**: always the full tier, through the wrapper the package ships (the pinned path in the example, relative to the folder the linter runs in), with `-Settings` naming the settings file the loop runs; `pwsh` 7 only, Windows PowerShell 5.1 cannot run the wrapper.
+  Every finding blocks, whatever its severity, so the settings file the loop runs lists in `IncludeRules` only the rules the project enforces.
 - **Never**: Gradle detekt, Error Prone, or any tool that starts a JVM build; those stay in CI.
-- **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, `-c .oxlintrc.suggestions.json`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.
+- **Suggestions layer**: when a sub-skill built one, the loop runs it instead of the main config (`-c eslint.config.suggestions.mjs`, `-c sgconfig.suggestions.yml`, `-c .oxlintrc.suggestions.json`, `-Settings PSScriptAnalyzerSettings.suggestions.psd1`, as in the example), so rules the existing code breaks still guard every changed line; without one, drop the `-c`.
 - `command` is the project's own invocation with JSON output, and `"{files}"` is its own element.
   `extensions` are the file types that linter covers in this project.
 - **Monorepos**: when a linter and its config live in one package (`apps/web/` with its own `node_modules` and `eslint.config.mjs`), add `"cwd": "apps/web"` and write `command` as it runs from there; list one entry per package that lints differently.
   The linter then starts in that folder and gets only the edited files inside it, so another package's files never reach the wrong config.
-- `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `.oxlintrc*`, `oxlint.config.*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`), rule folders (`eslint-rules/**`, `oxlint-rules/**`, `ast-grep/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
+- `protect`: paths relative to the project root for every file that decides what counts as a violation: lint configs (`eslint.config.*` including the suggestions config, `.eslintrc*`, `.oxlintrc*`, `oxlint.config.*`, `sgconfig*.yml`, `detekt*.yml`, `ruff.toml`, `checkstyle.xml`, `.golangci.yml`, `**/PSScriptAnalyzerSettings*.psd1`), rule folders (`eslint-rules/**`, `oxlint-rules/**`, `ast-grep/**`, `PSScriptAnalyzerRules/**`, the project's own rule-set module), baseline files, and architecture tests (`*Arch*Test*`, `*TechnicalStructure*`).
   Leave out shared build files such as `package.json`, `pom.xml` or `pyproject.toml`, where an ask on every edit would be noise: the guard already asks for edits to the lint settings inside `package.json`, `pyproject.toml`, `setup.cfg` and `tox.ini`; mention in the report that lint settings inside other build files, such as plugin config in `pom.xml` or `build.gradle`, are not guarded.
   `.claude/codemyrules/` and `.claude/settings.local.json` are always guarded.
 

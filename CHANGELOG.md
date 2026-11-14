@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-14
+
+### Added
+
+- PowerShell support: codemyrules routes PowerShell sources to backend-pattern-rules, which turns standards into PSScriptAnalyzer rules (built-in rules in the settings first, else custom `Measure-*` rules with Pester tests).
+- The loop reads PSScriptAnalyzer output (format `psscriptanalyzer`) through a pwsh 7 wrapper shipped in the package; it runs at the end of each turn only, every finding blocks, and the installer refuses a missing `-Settings` file.
+- The guard counts `SuppressMessageAttribute` as a suppression, and the docs protect `PSScriptAnalyzerSettings*.psd1` and `PSScriptAnalyzerRules/**`.
+- CI installs PSScriptAnalyzer and runs the PowerShell loop tests against the real tool.
+
 ## [0.9.0] - 2026-11-12
 
 ### Added

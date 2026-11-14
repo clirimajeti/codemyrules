@@ -115,6 +115,15 @@ test('validateLoopConfig accepts the oxlint format', () => {
   assert.deepEqual(validateLoopConfig({ linters: [oxlint], protect: [] }, os.tmpdir()), []);
 });
 
+test('validateLoopConfig takes PSScriptAnalyzer in the full tier only: pwsh needs seconds to start', () => {
+  const psa = (tier) => ({ linters: [{ name: 'psscriptanalyzer', format: 'psscriptanalyzer', command: ['pwsh', '-NoProfile', '-File', 'psa.ps1', '{files}'], extensions: ['.ps1'], tier }], protect: [] });
+  const errs = (tier) => validateLoopConfig(psa(tier), os.tmpdir()).filter((e) => !/is not installed/.test(e));
+  assert.deepEqual(errs('full'), []);
+  assert.match(errs('fast').join('\n'), /linters\[0\].*PowerShell.*full tier/);
+  const withSettings = { linters: [{ ...psa('full').linters[0], command: ['pwsh', '-File', 'psa.ps1', '-Settings', 'nope.psd1', '{files}'] }], protect: [] };
+  assert.match(validateLoopConfig(withSettings, os.tmpdir()).join('\n'), /linters\[0\].*"nope\.psd1" after -Settings do not exist/);
+});
+
 test('validateLoopConfig names every broken field', () => {
   const dir = os.tmpdir();
   const errs = validateLoopConfig({
