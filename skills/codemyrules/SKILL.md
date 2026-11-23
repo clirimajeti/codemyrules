@@ -128,7 +128,7 @@ Offer it only when you are running in Claude Code, pi, opencode 2, the GitHub Co
 In pi, the guard asks through pi's confirm dialog, and pi loads the extension only in a trusted project, so say that in the report.
 In opencode, the guard asks through opencode's permission prompt, and `--auto` approves it, so say that in the report.
 In the Copilot CLI, the guard asks through Copilot's permission prompt, and in autopilot mode Copilot refuses a flagged edit, so say that in the report.
-In the Gemini CLI, the guard asks through Gemini's approval prompt, a headless `gemini -p` run refuses a flagged edit, project hooks run only in a trusted folder, and the installer refuses a `.gemini/settings.json` that git tracks, so say that in the report.
+In the Gemini CLI, the guard asks through Gemini's approval prompt, a headless `gemini -p` run refuses a flagged edit but then hangs because of a Gemini bug (so headless runs need a timeout), project hooks run only in a trusted folder, and the installer refuses a `.gemini/settings.json` that git tracks, so say that in the report.
 In any other harness, skip this step and the baseline, and say in the report that the feedback loop needs Claude Code, pi, opencode 2, the GitHub Copilot CLI or the Gemini CLI and is not available here.
 
 Draft the config in a temporary file outside the project, as `loop.json`:

@@ -289,10 +289,13 @@ The Copilot CLI skips repository hooks in a folder that is not trusted, and then
 In the Gemini CLI the guard asks through Gemini's own approval prompt, also in YOLO mode.
 Gemini documents no `ask` decision for hooks yet, so this relies on behavior that can change (google-gemini/gemini-cli#28046).
 In `gemini -p`, with nobody to ask, Gemini refuses a flagged edit.
+But Gemini CLI 0.70 then does not stop, because of a bug in Gemini, not in codemyrules: any hook that asks causes this.
+So when you run `gemini -p` in a script or in CI, give it a time limit.
 Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder where you start it.
 The hooks use the absolute path of the project, so after you move the project, run the install again.
 The install stops if `.gemini/settings.json` is tracked by git, has comments or is not valid JSON.
-This support is not yet tested with a real Gemini CLI.
+We tested this support with Gemini CLI 0.70.0 on macOS.
+We did not test it on Windows.
 Support for Codex and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 

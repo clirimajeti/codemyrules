@@ -141,7 +141,7 @@ The file is git-excluded.
 Each hook runs `codemyrules hook gemini` from the pinned copy; the event is `hook_event_name` in the payload.
 The command holds the absolute path of the pinned copy, so a project that moves needs a reinstall.
 - `BeforeTool` on `write_file` and `replace`: the guard; a flagged edit returns `decision: "ask"` with the reason, and Gemini asks the user, also in YOLO mode.
-  The `ask` decision is undocumented in Gemini CLI (google-gemini/gemini-cli#28046); a headless `gemini -p` run refuses a flagged edit.
+  The `ask` decision is undocumented in Gemini CLI (google-gemini/gemini-cli#28046); a headless `gemini -p` run refuses a flagged edit, but Gemini CLI 0.70 then hangs (a Gemini bug: any hook `ask` in headless mode does it), so headless runs need a timeout.
 - `BeforeTool` and `AfterTool` on `run_shell_command`: the shell guard; its message to undo the change goes back to the agent.
 - `AfterTool` on `write_file` and `replace`: the fast tier; findings go back as `additionalContext`.
 - `AfterAgent`: the full tier; findings go back once with `decision: "deny"`, which starts one more turn, and after that one retry the user sees what is still failing.
@@ -150,7 +150,7 @@ The installer refuses a `.gemini/settings.json` that git tracks, that has commen
 Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder it starts in.
 The `BeforeTool` commands fail closed (a `|| exit 2` suffix in bash, the same check in PowerShell); the PowerShell form is tested only as a string.
 Edits through other tools are not checked.
-Not yet verified end to end with a real Gemini CLI.
+Verified end to end with Gemini CLI 0.70.0 on macOS: the guard prompt (also in YOLO), the headless refusal, the shell guard, both lint tiers and the fail-closed suffix; not on Windows.
 
 ## Files
 
