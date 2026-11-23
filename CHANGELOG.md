@@ -5,6 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
+### Added
+
+- Gemini CLI support: `codemyrules install --harness gemini` merges `BeforeTool`, `AfterTool` and `AfterAgent` hooks into the project's `.gemini/settings.json` and git-excludes it; the hooks run the guard, the shell guard and both lint tiers.
+- The guard asks through Gemini's approval prompt with the hook decision `ask`, also in YOLO mode; Gemini supports it but does not document it yet (google-gemini/gemini-cli#28046).
+- The installer refuses a `.gemini/settings.json` that git tracks, that has comments or that is not a JSON object, and writes nothing; the hook commands hold the absolute path of the pinned copy, so a moved project needs a reinstall.
+- The installer detects Gemini CLI projects from `GEMINI.md` or a `.gemini` folder that holds more than Gemini Code Assist files, and `status` and `uninstall` handle the Gemini hooks; `uninstall` refuses a settings file with our hooks that it cannot parse.
+- `.gemini/settings.json` is part of the protected setup in every codemyrules project.
+
+### Known issues
+
+- In Gemini CLI 0.70, a headless `gemini -p` run refuses a flagged edit but then does not exit; any hook that asks causes this, so give headless runs a time limit.
+- The Gemini fail-closed suffix for PowerShell is tested only as a string, not on Windows.
+
 ## [0.9.1] - 2026-11-14
 
 ### Added
