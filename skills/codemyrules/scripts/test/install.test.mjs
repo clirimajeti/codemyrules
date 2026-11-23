@@ -659,7 +659,8 @@ test('status names a gemini hook command it cannot read instead of printing unde
   assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
   const gp = path.join(dir, '.gemini/settings.json');
   const s = JSON.parse(fs.readFileSync(gp, 'utf8'));
-  s.hooks.AfterAgent[0].hooks[0].command = `bash -c "node ${pinnedCli(dir)} hook gemini"`;
+  // forward slashes, so the command still counts as codemyrules' own on Windows too
+  s.hooks.AfterAgent[0].hooks[0].command = `bash -c "node ${pinnedCli(dir).replaceAll('\\', '/')} hook gemini"`;
   fs.writeFileSync(gp, JSON.stringify(s));
   const out = spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout;
   assert.doesNotMatch(out, /undefined/);
