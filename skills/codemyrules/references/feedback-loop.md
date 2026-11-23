@@ -68,6 +68,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files; the path is taken as stored on disk, so `ESLint.Config.js` on a case-insensitive file system (macOS, Windows) is `eslint.config.js`
 - an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js`, to `.opencode/plugins/codemyrules.js` or to `.github/hooks/codemyrules.json`
+- an edit to `.gemini/settings.json`: it is part of the protected setup in every codemyrules project, whatever harness is used, so an agent edit to it asks the user and a shell change to it sends the agent back
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -146,9 +147,12 @@ The command holds the absolute path of the pinned copy, so a project that moves 
 - `AfterTool` on `write_file` and `replace`: the fast tier; findings go back as `additionalContext`.
 - `AfterAgent`: the full tier; findings go back once with `decision: "deny"`, which starts one more turn, and after that one retry the user sees what is still failing.
 
-The installer refuses a `.gemini/settings.json` that git tracks, that has comments or that is not valid JSON, and writes nothing.
+The installer refuses a `.gemini/settings.json` that git tracks, that has comments, that is not valid JSON or that is not a JSON object, and writes nothing.
+A `.gemini/` folder that holds only `config.yaml` and `styleguide.md` (Gemini Code Assist on GitHub) does not count as Gemini CLI setup for a first install.
+When `.gemini/settings.json` holds codemyrules hooks but no longer parses (comments added by hand, say), `uninstall` refuses and removes nothing, so the hooks do not outlive the pinned copy they run; `status` reports it.
 Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder it starts in.
 The `BeforeTool` commands fail closed (a `|| exit 2` suffix in bash, the same check in PowerShell); the PowerShell form is tested only as a string.
+A hook that runs past its timeout is killed and counts as a non-blocking error with no output, so a timed-out `BeforeTool` hook lets the call through, as in Claude Code: the guard fails open on a timeout (10 s).
 Edits through other tools are not checked.
 Verified end to end with Gemini CLI 0.70.0 on macOS: the guard prompt (also in YOLO), the headless refusal, the shell guard, both lint tiers and the fail-closed suffix; not on Windows.
 
