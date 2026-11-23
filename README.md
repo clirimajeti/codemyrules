@@ -90,6 +90,21 @@ Copilot runs repository hooks only in a trusted folder: trust the project when C
 </details>
 
 <details>
+<summary><strong>Gemini CLI</strong></summary>
+
+```bash
+npx skills add clirimajeti/codemyrules -a gemini-cli
+npx skills add clirimajeti/eslint-pattern-rules -a gemini-cli
+npx skills add clirimajeti/backend-pattern-rules -a gemini-cli
+```
+
+Then ask in your own words, as above.
+The skill installs the feedback loop as Gemini CLI hooks in `.gemini/settings.json`.
+Gemini runs project hooks only in a trusted folder: trust the project when Gemini asks.
+
+</details>
+
+<details>
 <summary><strong>Codex, Cursor and others</strong></summary>
 
 ```bash
@@ -99,7 +114,7 @@ npx skills add clirimajeti/backend-pattern-rules
 ```
 
 The rules and the doc cleanup work in every harness.
-The feedback loop runs only in Claude Code, pi, opencode and the GitHub Copilot CLI, see [Harness support](#harness-support).
+The feedback loop runs only in Claude Code, pi, opencode, the GitHub Copilot CLI and the Gemini CLI, see [Harness support](#harness-support).
 
 </details>
 
@@ -115,9 +130,9 @@ codemyrules install . --config loop.json           # dry run: shows the plan and
 codemyrules install . --config loop.json --apply   # installs it
 ```
 
-Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin, `.github/hooks/` or `.github/copilot-instructions.md` Copilot CLI hooks.
+Without `--harness`, the installer picks the harness the project is set up for: `.claude/` gives Claude Code hooks, `.pi/` a pi extension, `.opencode/` or `opencode.json` an opencode plugin, `.github/hooks/` or `.github/copilot-instructions.md` Copilot CLI hooks, `.gemini/` or `GEMINI.md` Gemini CLI hooks.
 A `.claude/` folder that holds only codemyrules' own setup does not count.
-With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, `copilot`, or a comma-separated list such as `claude,pi` for several.
+With none of them it installs for Claude Code, and with more than one it asks you to choose: `--harness claude`, `pi`, `opencode`, `copilot`, `gemini`, or a comma-separated list such as `claude,pi` for several.
 
 `loop.json` names your linters per tier and the files the guard protects:
 
@@ -133,7 +148,7 @@ With none of them it installs for Claude Code, and with more than one it asks yo
 
 The installer checks the config and refuses a broken one before it writes anything.
 Formats are `eslint`, `oxlint`, `ast-grep`, `ruff` and `psscriptanalyzer` (PowerShell 7, full tier only), and the tiers are `fast` (after every edit) and `full` (at the end of each turn); step 5 of [`SKILL.md`](skills/codemyrules/SKILL.md) has every option.
-It needs Node 22 or later and Claude Code, pi, opencode 2 or the GitHub Copilot CLI.
+It needs Node 22 or later and Claude Code, pi, opencode 2, the GitHub Copilot CLI or the Gemini CLI.
 
 </details>
 
@@ -243,7 +258,7 @@ Three tiers, each silent when clean:
   A guard asks you before any edit that adds or moves an ignore comment or changes a lint config, rule file or baseline.
   A change made through `Bash` or `NotebookEdit` cannot be asked about first, so it is checked right after, and the agent is told to undo it or ask you.
 - **Private.**
-  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`; in opencode, the plugin into `.opencode/plugins/codemyrules.js`; in the Copilot CLI, the hooks into `.github/hooks/codemyrules.json`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
+  The hooks go into `.claude/settings.local.json` (in pi, the extension into `.pi/extensions/codemyrules.js`; in opencode, the plugin into `.opencode/plugins/codemyrules.js`; in the Copilot CLI, the hooks into `.github/hooks/codemyrules.json`; in the Gemini CLI, the hooks into `.gemini/settings.json`), the config into `.claude/codemyrules/`, and all of them into `.git/info/exclude`.
   No tracked file changes.
   Sharing it with your team is a later, separate step.
 - **Pinned per project.**
@@ -262,6 +277,7 @@ Three tiers, each silent when clean:
 | [pi](https://github.com/earendil-works/pi-coding-agent) | yes | yes, through a project extension (`codemyrules install . --harness pi --apply`) |
 | [opencode](https://opencode.ai) 2 | yes | yes, through a project plugin (`codemyrules install . --harness opencode --apply`) |
 | [GitHub Copilot CLI](https://github.com/github/copilot-cli) | yes | yes, through project hooks (`codemyrules install . --harness copilot --apply`) |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | yes | yes, through project hooks (`codemyrules install . --harness gemini --apply`) |
 | Codex, Cursor and others | yes | not yet |
 
 In pi the guard asks through pi's own confirm dialog; in print or JSON mode, with nobody to ask, a flagged edit is refused.
@@ -270,6 +286,13 @@ In opencode the guard asks through opencode's own permission prompt; in `opencod
 In the Copilot CLI the guard asks through Copilot's own permission prompt; in autopilot mode and in the Copilot cloud agent, with nobody to ask, Copilot refuses a flagged edit.
 The hooks file is git-excluded, so the Copilot cloud agent does not run the loop.
 The Copilot CLI skips repository hooks in a folder that is not trusted, and then says so in a warning.
+In the Gemini CLI the guard asks through Gemini's own approval prompt, also in YOLO mode.
+Gemini documents no `ask` decision for hooks yet, so this relies on behavior that can change (google-gemini/gemini-cli#28046).
+In `gemini -p`, with nobody to ask, Gemini refuses a flagged edit.
+Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder where you start it.
+The hooks use the absolute path of the project, so after you move the project, run the install again.
+The install stops if `.gemini/settings.json` is tracked by git, has comments or is not valid JSON.
+This support is not yet tested with a real Gemini CLI.
 Support for Codex and other harnesses is in progress.
 If your harness has hooks or a plugin API and you want it supported, open an issue.
 
@@ -299,6 +322,7 @@ skills/codemyrules/
     ├── pi.mjs                  # pi adapter: extension with the guard, shell guard and both tiers
     ├── opencode.mjs            # opencode adapter: plugin with the guard, shell guard and both tiers
     ├── copilot.mjs             # GitHub Copilot CLI adapter: hooks with the guard, shell guard and both tiers
+    ├── gemini.mjs              # Gemini CLI adapter: hooks with the guard, shell guard and both tiers
     └── test/                   # node:test suites, and release-check.mjs
 evals/                          # claude plugin eval cases for the skill
 scripts/eval.sh                 # runs them, with the two sub-skill plugins staged next to it

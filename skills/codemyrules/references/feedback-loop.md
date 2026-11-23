@@ -93,7 +93,7 @@ CI, running the project's own lint setup, stays the safety net.
 
 `codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
 A reinstall without `--harness` keeps the harnesses already installed.
-A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`), Claude Code when it has none, and refuses when it has more than one.
+A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`, `.gemini/` or `GEMINI.md`), Claude Code when it has none, and refuses when it has more than one.
 The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
 - `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
   Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.
@@ -134,6 +134,24 @@ A hook that runs past its timeout lets the tool call through, so the guard fails
 The hooks file is git-excluded, so the cloud agent, which reads only committed hooks, does not run the loop.
 Edits through other tools (for example `apply_patch`, if a model gets it) are not checked and not recorded for the end-of-turn check.
 
+## Gemini CLI
+
+`codemyrules install <project-dir> --harness gemini` merges the hooks into `.gemini/settings.json`; harnesses combine as with pi (`--harness claude,gemini`).
+The file is git-excluded.
+Each hook runs `codemyrules hook gemini` from the pinned copy; the event is `hook_event_name` in the payload.
+The command holds the absolute path of the pinned copy, so a project that moves needs a reinstall.
+- `BeforeTool` on `write_file` and `replace`: the guard; a flagged edit returns `decision: "ask"` with the reason, and Gemini asks the user, also in YOLO mode.
+  The `ask` decision is undocumented in Gemini CLI (google-gemini/gemini-cli#28046); a headless `gemini -p` run refuses a flagged edit.
+- `BeforeTool` and `AfterTool` on `run_shell_command`: the shell guard; its message to undo the change goes back to the agent.
+- `AfterTool` on `write_file` and `replace`: the fast tier; findings go back as `additionalContext`.
+- `AfterAgent`: the full tier; findings go back once with `decision: "deny"`, which starts one more turn, and after that one retry the user sees what is still failing.
+
+The installer refuses a `.gemini/settings.json` that git tracks, that has comments or that is not valid JSON, and writes nothing.
+Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder it starts in.
+The `BeforeTool` commands fail closed (a `|| exit 2` suffix in bash, the same check in PowerShell); the PowerShell form is tested only as a string.
+Edits through other tools are not checked.
+Not yet verified end to end with a real Gemini CLI.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -151,6 +169,7 @@ Everything lives in the project, private to the user who installed it:
 | `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
 | `.opencode/plugins/codemyrules.js` | with `--harness opencode`: the opencode plugin, a one-line re-export of the pinned `opencode.mjs` |
 | `.github/hooks/codemyrules.json` | with `--harness copilot`: the Copilot CLI hooks, each running the pinned `copilot.mjs` |
+| `.gemini/settings.json` | with `--harness gemini`: the Gemini CLI hooks, merged into the file, each running the pinned `gemini.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
