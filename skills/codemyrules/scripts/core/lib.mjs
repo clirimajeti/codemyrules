@@ -11,8 +11,10 @@ export const PI_EXTENSION = '.pi/extensions/codemyrules.js';
 export const OPENCODE_PLUGIN = '.opencode/plugins/codemyrules.js';
 // the GitHub Copilot CLI hooks file the installer writes; its hooks run the pinned package's copilot adapter
 export const COPILOT_HOOKS = '.github/hooks/codemyrules.json';
+// the Gemini CLI settings file the installer merges its hooks into; they run the pinned package's gemini adapter
+export const GEMINI_SETTINGS = '.gemini/settings.json';
 // every file outside CONFIG_DIR the installer writes for a harness
-export const HARNESS_FILES = [SETTINGS_FILE, PI_EXTENSION, OPENCODE_PLUGIN, COPILOT_HOOKS];
+export const HARNESS_FILES = [SETTINGS_FILE, PI_EXTENSION, OPENCODE_PLUGIN, COPILOT_HOOKS, GEMINI_SETTINGS];
 const CONFIG_FILE = 'loop.json';
 const LOG_FILE = 'failures.log';
 
