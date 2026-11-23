@@ -611,3 +611,57 @@ test('a package without gemini.mjs is refused for --harness gemini', (t) => {
   assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
   assert.equal(fs.existsSync(path.join(dir, '.gemini')), false);
 });
+
+test('a .gemini/settings.json with our hooks that no longer parses: status says so, uninstall refuses and keeps the pinned copy', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const gp = path.join(dir, '.gemini/settings.json');
+  const content = '// mine\n' + fs.readFileSync(gp, 'utf8');
+  fs.writeFileSync(gp, content);
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /^gemini: \.gemini\/settings\.json has codemyrules hooks, but it cannot be parsed/m);
+  for (const extra of [[], ['--apply']]) {
+    const r = spawnSync('node', [CLI, 'uninstall', dir, ...extra], { encoding: 'utf8' });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /\.gemini\/settings\.json/);
+    assert.match(r.stderr, /nothing (?:written|removed)/i);
+  }
+  assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules/pkg')));
+  assert.equal(fs.readFileSync(gp, 'utf8'), content);
+});
+
+test('a .gemini folder of Gemini Code Assist on GitHub alone does not pick Gemini CLI', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.gemini'));
+  fs.writeFileSync(path.join(dir, '.gemini/config.yaml'), 'x: 1\n');
+  fs.writeFileSync(path.join(dir, '.gemini/styleguide.md'), 'x');
+  const r = run(dir, cfg, '--apply');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /harness: claude \(no harness folder found/);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.ok(!fs.existsSync(path.join(dir, '.gemini/settings.json')));
+});
+
+test('gemini install refuses a .gemini/settings.json that is not a JSON object', (t) => {
+  for (const content of ['null', '[]', '"x"']) {
+    const { dir, cfg } = tempRepo(t);
+    fs.mkdirSync(path.join(dir, '.gemini'));
+    fs.writeFileSync(path.join(dir, '.gemini/settings.json'), content);
+    const r = run(dir, cfg, '--harness', 'gemini', '--apply');
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /\.gemini\/settings\.json is not a JSON object/);
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
+    assert.equal(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8'), content);
+  }
+});
+
+test('status names a gemini hook command it cannot read instead of printing undefined', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const gp = path.join(dir, '.gemini/settings.json');
+  const s = JSON.parse(fs.readFileSync(gp, 'utf8'));
+  s.hooks.AfterAgent[0].hooks[0].command = `bash -c "node ${pinnedCli(dir)} hook gemini"`;
+  fs.writeFileSync(gp, JSON.stringify(s));
+  const out = spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout;
+  assert.doesNotMatch(out, /undefined/);
+  assert.match(out, /^gemini: .*but they run an unreadable command, which is missing; reinstall$/m);
+});
