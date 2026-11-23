@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as psa from './core/psscriptanalyzer.mjs';
-import { CONFIG_DIR, COPILOT_HOOKS, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
+import { CONFIG_DIR, COPILOT_HOOKS, GEMINI_SETTINGS, OPENCODE_PLUGIN, PI_EXTENSION, SETTINGS_FILE, isMain, readLoopConfig } from './core/lib.mjs';
 
 // what versions before the npm package copied into the project; an install over them removes them
 const COPIED = ['lib.mjs', 'secret-patterns.json', 'guard.mjs', 'shell-guard.mjs', 'lint-edited.mjs', 'lint-turn.mjs', 'core'];
-const EXCLUDES = { claude: [`${CONFIG_DIR}/`, SETTINGS_FILE], pi: [`${CONFIG_DIR}/`, PI_EXTENSION], opencode: [`${CONFIG_DIR}/`, OPENCODE_PLUGIN], copilot: [`${CONFIG_DIR}/`, COPILOT_HOOKS] };
+const EXCLUDES = { claude: [`${CONFIG_DIR}/`, SETTINGS_FILE], pi: [`${CONFIG_DIR}/`, PI_EXTENSION], opencode: [`${CONFIG_DIR}/`, OPENCODE_PLUGIN], copilot: [`${CONFIG_DIR}/`, COPILOT_HOOKS], gemini: [`${CONFIG_DIR}/`, GEMINI_SETTINGS] };
 export const HARNESSES = Object.keys(EXCLUDES);
 // where the CLI sits inside the npm package
 const SCRIPTS = 'skills/codemyrules/scripts';
@@ -41,7 +41,8 @@ export function findCli(env = process.env) {
 // So the guard and the shell guard turn a crash, such as a deleted pinned copy, into exit 2, which blocks the call and says why.
 // Not the other hooks: a lint run that cannot start is no reason to block, and a blocked stop the agent cannot fix never ends.
 // Claude Code runs hook commands through bash, also on Windows (Git Bash).
-const FAIL_CLOSED = ` || { echo 'codemyrules: the hook could not run (the pinned copy in ${CONFIG_DIR}/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }`;
+const UNRUNNABLE = `codemyrules: the hook could not run (the pinned copy in ${CONFIG_DIR}/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply`;
+const FAIL_CLOSED = ` || { echo '${UNRUNNABLE}' >&2; exit 2; }`;
 const entry = (matcher, cli, hook, timeout) => ({
   ...(matcher && { matcher }),
   hooks: [{ type: 'command', command: `node "${cli}" hook ${hook}${hook === 'guard' || hook === 'shell' ? FAIL_CLOSED : ''}`, timeout }],
@@ -54,11 +55,28 @@ export const hookEntries = (cli) => ({
   Stop: [entry(undefined, cli, 'turn', 120)],
 });
 
+// Gemini CLI runs hook commands in bash, and in PowerShell on Windows: a single-quoted argument for that shell.
+// Not $GEMINI_PROJECT_DIR: Gemini puts it in already quoted, so it cannot sit inside a quoted path; a moved project needs a reinstall.
+const quoteArg = (s, platform) => `'${s.replaceAll("'", platform === 'win32' ? "''" : "'\\''")}'`;
+export function geminiHooks(cli, platform = process.platform) {
+  const command = `node ${quoteArg(cli, platform)} hook gemini`;
+  // exit 1 lets the call through in Gemini, so BeforeTool turns a crash into exit 2, as for Claude Code
+  const failClosed = platform === 'win32' ? `; if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine(${quoteArg(UNRUNNABLE, platform)}); exit 2 }` : FAIL_CLOSED;
+  const hook = (matcher, timeout, suffix = '') => [{ ...(matcher && { matcher }), hooks: [{ type: 'command', command: command + suffix, timeout }] }];
+  const tools = 'write_file|replace|run_shell_command';
+  return { BeforeTool: hook(tools, 10000, failClosed), AfterTool: hook(tools, 30000), AfterAgent: hook(undefined, 120000) };
+}
+
 // a hook command codemyrules wrote: a copied script (before the npm package) or the CLI, wherever it was installed
 const ours = (command) => typeof command === 'string'
-  && (command.includes(`/${CONFIG_DIR}/`) || /cli\.mjs" hook (?:guard|shell|edited|turn)(?: \|\||$)/.test(command));
-// the CLI a hook command runs, with the project folder put in for $CLAUDE_PROJECT_DIR
-const hookTarget = (command, projectDir) => /^node "(.+?)" hook \w+/.exec(command)?.[1]?.replace('$CLAUDE_PROJECT_DIR', projectDir);
+  && (command.includes(`/${CONFIG_DIR}/`) || /cli\.mjs(?:" hook (?:guard|shell|edited|turn)|' hook gemini)(?: \|\||;|$)/.test(command));
+// the CLI a hook command runs, with the project folder put in for $CLAUDE_PROJECT_DIR; a single-quoted path is unquoted
+const hookTarget = (command, projectDir) => {
+  const m = /^node (?:"(.+?)"|'((?:[^']|'\\''|'')*)') hook \w+/.exec(command);
+  return m?.[1]?.replace('$CLAUDE_PROJECT_DIR', projectDir) ?? m?.[2]?.replace(/'\\''|''/g, "'");
+};
+// the codemyrules hook commands in a settings file (Claude Code's or Gemini's)
+const ourCommands = (settings) => Object.values(settings?.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []).map((h) => h?.command).filter(ours);
 
 // drop every hook codemyrules wrote before, then add these; everything else in the settings stays as it was
 export function mergeSettings(existing, hooks) {
@@ -108,20 +126,48 @@ export function extensionFile(harness) {
   return `// codemyrules lint feedback loop for ${harness}, written by \`codemyrules install\`; it runs the project's pinned copy.\nexport { default } from '${target}';\n`;
 }
 const hasExtension = (projectDir, harness) => readIf(path.join(projectDir, EXTENSIONS[harness].file))?.includes('codemyrules') ?? false;
+// the adapter the hooks of each harness run from the pinned copy; Claude Code's are in cli.mjs itself
+const ADAPTERS = { ...Object.fromEntries(Object.entries(EXTENSIONS).map(([h, x]) => [h, x.adapter])), gemini: 'gemini.mjs' };
+
+// Gemini reads hooks only from the project's .gemini/settings.json, which a team may share, so the installer refuses what it cannot rewrite safely
+export function geminiSettingsProblem(projectDir) {
+  if (spawnSync('git', ['ls-files', '--error-unmatch', GEMINI_SETTINGS], { cwd: projectDir }).status === 0) {
+    return `${GEMINI_SETTINGS} is tracked by git: codemyrules' hooks would show up in every diff, and once committed they would block the edits of everyone without codemyrules. Untrack it (git rm --cached ${GEMINI_SETTINGS}) to use the loop in Gemini CLI.`;
+  }
+  const text = readIf(path.join(projectDir, GEMINI_SETTINGS));
+  if (text === null) return null;
+  let settings;
+  try { settings = JSON.parse(text); } catch (e) {
+    // comments outside strings; JSON that parses without them had comments, which JSON.stringify drops
+    try { JSON.parse(text.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '$1')); } catch {
+      return `${GEMINI_SETTINGS} is not valid JSON (${e.message.split('\n')[0]}). Fix it to use the loop in Gemini CLI.`;
+    }
+    return `${GEMINI_SETTINGS} has comments, which rewriting it would lose. Remove them to use the loop in Gemini CLI.`;
+  }
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) return `${GEMINI_SETTINGS} is not a JSON object. Fix it to use the loop in Gemini CLI.`;
+  return null;
+}
+// Gemini settings that hold codemyrules' hooks but no longer parse (comments added by hand, say): nothing can take the hooks out
+const unparsedGemini = (projectDir) => {
+  const text = readIf(path.join(projectDir, GEMINI_SETTINGS));
+  return text !== null && readJson(path.join(projectDir, GEMINI_SETTINGS)) === null && text.includes('hook gemini');
+};
 
 // the harnesses a project has the loop for: codemyrules' hooks in the Claude Code settings, or its own harness file
 export function installedHarnesses(projectDir) {
-  const hooks = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat().flatMap((e) => e?.hooks ?? []);
-  return [...(hooks.some((h) => ours(h.command)) ? ['claude'] : []), ...Object.keys(EXTENSIONS).filter((h) => hasExtension(projectDir, h))];
+  const has = (file) => ourCommands(readJson(path.join(projectDir, file))).length > 0;
+  return [...(has(SETTINGS_FILE) ? ['claude'] : []), ...Object.keys(EXTENSIONS).filter((h) => hasExtension(projectDir, h)), ...(has(GEMINI_SETTINGS) ? ['gemini'] : [])];
 }
 
 // the harnesses a project shows signs of using, from their project folders and config files
-const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'], copilot: ['.github/hooks', '.github/copilot-instructions.md'] };
-// codemyrules keeps its own folder in .claude for every harness, so .claude counts only when it holds something else
+const MARKERS = { claude: ['.claude'], pi: ['.pi'], opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'], copilot: ['.github/hooks', '.github/copilot-instructions.md'], gemini: ['.gemini', 'GEMINI.md'] };
+// a folder that counts only when it holds something besides these: codemyrules' own folder in .claude, which it keeps for every
+// harness, and the files of Gemini Code Assist on GitHub in .gemini
+const NOT_MARKERS = { [path.dirname(CONFIG_DIR)]: [path.basename(CONFIG_DIR)], '.gemini': ['config.yaml', 'styleguide.md'] };
 const hasMarker = (projectDir, m) => {
   const p = path.join(projectDir, m);
-  if (m !== path.dirname(CONFIG_DIR)) return fs.existsSync(p);
-  try { return fs.readdirSync(p).some((n) => n !== path.basename(CONFIG_DIR)); } catch { return false; }
+  if (!NOT_MARKERS[m]) return fs.existsSync(p);
+  try { return fs.readdirSync(p).some((n) => !NOT_MARKERS[m].includes(n)); } catch { return false; }
 };
 export function detectedHarnesses(projectDir) {
   return HARNESSES.filter((h) => MARKERS[h].some((m) => hasMarker(projectDir, m)));
@@ -179,6 +225,10 @@ export function plan(projectDir, loopConfig, cli, harnesses = ['claude']) {
     const sp = path.join(projectDir, SETTINGS_FILE);
     const settings = mergeSettings(JSON.parse(readIf(sp) ?? '{}'), hookEntries(PINNED_CLI_IN_HOOKS));
     add(sp, JSON.stringify(settings, null, 2) + '\n');
+  }
+  if (harnesses.includes('gemini')) {
+    const gp = path.join(projectDir, GEMINI_SETTINGS);
+    add(gp, JSON.stringify(mergeSettings(JSON.parse(readIf(gp) ?? '{}'), geminiHooks(pinnedCli(projectDir))), null, 2) + '\n');
   }
   for (const [h, x] of Object.entries(EXTENSIONS)) if (harnesses.includes(h)) add(path.join(projectDir, x.file), x.content?.(projectDir) ?? extensionFile(h));
 
@@ -316,10 +366,15 @@ export function main(args) {
     return 1;
   }
   // the hooks run the pinned copy of that package, so it must have the adapter of every harness installed for
-  const lacking = harnesses.filter((h) => EXTENSIONS[h] && !fs.existsSync(path.join(path.dirname(cli), EXTENSIONS[h].adapter)));
+  const lacking = harnesses.filter((h) => ADAPTERS[h] && !fs.existsSync(path.join(path.dirname(cli), ADAPTERS[h])));
   if (lacking.length) {
     const version = readJson(path.join(packageRoot(cli), 'package.json'))?.version ?? 'unknown';
     console.error(`codemyrules: the package the hooks would run (codemyrules ${version}, ${packageRoot(cli)}) has no ${lacking.join(' or ')} support; nothing written. Update it: npm install -g codemyrules@latest`);
+    return 1;
+  }
+  const problem = harnesses.includes('gemini') && geminiSettingsProblem(projectDir);
+  if (problem) {
+    console.error(`codemyrules: ${problem} Nothing written.`);
     return 1;
   }
   return carryOut(plan(projectDir, cfg, cli, harnesses), apply);
@@ -355,6 +410,11 @@ const projectArg = (args) => { const d = args.find((a) => !a.startsWith('--')); 
 export function uninstall(args) {
   const projectDir = projectArg(args);
   if (!projectDir) { console.error('usage: codemyrules uninstall <project-dir> [--apply]'); return 2; }
+  // removing the pinned copy while those hooks stay would block every Gemini edit and shell call
+  if (unparsedGemini(projectDir)) {
+    console.error(`codemyrules: ${GEMINI_SETTINGS} holds codemyrules hooks but is not valid JSON (comments, say), so they cannot be taken out. Remove the "hook gemini" entries from ${path.join(projectDir, GEMINI_SETTINGS)} by hand, or make it plain JSON again, then re-run. Nothing written.`);
+    return 1;
+  }
   const items = [];
   const dest = path.join(projectDir, CONFIG_DIR);
   if (fs.existsSync(dest)) {
@@ -370,10 +430,20 @@ export function uninstall(args) {
     if (count(out) !== count(settings)) items.push({ path: sp, action: 'update', preview: `removes ${count(settings) - count(out)} codemyrules hook entries, keeps the rest`, content });
   }
   for (const [h, x] of Object.entries(EXTENSIONS)) if (hasExtension(projectDir, h)) items.push({ path: path.join(projectDir, x.file), action: 'delete', preview: x.what, content: null });
+  // Gemini's settings: our entries go, and so do the event lists they leave empty; a file that held only them is deleted
+  const gp = path.join(projectDir, GEMINI_SETTINGS);
+  const gemini = readJson(gp);
+  const n = ourCommands(gemini).length;
+  if (n) {
+    const out = mergeSettings(gemini, {});
+    for (const [event, list] of Object.entries(out.hooks)) if (Array.isArray(list) && !list.length) delete out.hooks[event];
+    if (Object.keys(out).length === 1 && !Object.keys(out.hooks).length) items.push({ path: gp, action: 'delete', preview: `the Gemini CLI settings, which held only ${n} codemyrules hook entries`, content: null });
+    else items.push({ path: gp, action: 'update', preview: `removes ${n} codemyrules hook entries, keeps the rest`, content: JSON.stringify(out, null, 2) + '\n' });
+  }
   const apply = args.includes('--apply');
   const code = carryOut(items, apply);
-  // a .claude or .github/hooks folder that held nothing but the setup goes too; rmdir leaves a folder with anything else in it alone
-  if (apply) for (const d of [path.dirname(dest), path.join(projectDir, path.dirname(COPILOT_HOOKS))]) try { fs.rmdirSync(d); } catch { /* not empty, or not there */ }
+  // a .claude, .github/hooks or .gemini folder that held nothing but the setup goes too; rmdir leaves a folder with anything else in it alone
+  if (apply) for (const d of [path.dirname(dest), path.join(projectDir, path.dirname(COPILOT_HOOKS)), path.dirname(gp)]) try { fs.rmdirSync(d); } catch { /* not empty, or not there */ }
   return code;
 }
 
@@ -384,10 +454,11 @@ export function status(args) {
   const version = readJson(new URL('../../../package.json', import.meta.url))?.version ?? 'unknown';
   console.log(`codemyrules ${version}`);
   const dest = path.join(projectDir, CONFIG_DIR);
-  const commands = Object.values(readJson(path.join(projectDir, SETTINGS_FILE))?.hooks ?? {}).flat()
-    .flatMap((e) => e?.hooks ?? []).map((h) => h.command).filter(ours);
+  const commands = ourCommands(readJson(path.join(projectDir, SETTINGS_FILE)));
+  const gemini = ourCommands(readJson(path.join(projectDir, GEMINI_SETTINGS)));
   const extensions = Object.keys(EXTENSIONS).filter((h) => hasExtension(projectDir, h));
-  if (!commands.length && !extensions.length && !fs.existsSync(path.join(dest, 'loop.json'))) {
+  const geminiUnparsed = unparsedGemini(projectDir);
+  if (!commands.length && !gemini.length && !geminiUnparsed && !extensions.length && !fs.existsSync(path.join(dest, 'loop.json'))) {
     console.log(`not installed in ${projectDir}`);
     return 0;
   }
@@ -404,6 +475,13 @@ export function status(args) {
     const { file, adapter } = EXTENSIONS[h];
     console.log(`${h}: ${file}${fs.existsSync(path.join(dest, PIN_DIR, SCRIPTS, adapter)) ? '' : `, but the pinned copy has no ${h} adapter; reinstall`}`);
   }
+  if (gemini.length) {
+    // the commands name the pinned CLI by its absolute path, so a moved project runs a missing one
+    const gone = [...new Set(gemini.map((c) => hookTarget(c, projectDir)))].filter((t) => !t || !fs.existsSync(t)).map((t) => t || 'an unreadable command');
+    const adapter = fs.existsSync(path.join(dest, PIN_DIR, SCRIPTS, ADAPTERS.gemini));
+    console.log(`gemini: ${GEMINI_SETTINGS}, ${gemini.length} entries${gone.length ? `, but they run ${gone.join(', ')}, which is missing; reinstall` : adapter ? '' : ', but the pinned copy has no gemini adapter; reinstall'}`);
+  }
+  if (geminiUnparsed) console.log(`gemini: ${GEMINI_SETTINGS} has codemyrules hooks, but it cannot be parsed (comments, say); make it plain JSON again so reinstall and uninstall can rewrite it`);
   const pinned = path.resolve(pinnedCli(projectDir));
   if (targets.some((t) => path.resolve(t) !== pinned)) console.log(`  not pinned: every npm update of what they run reaches this project. Reinstall to pin a copy: codemyrules install ${projectDir} --apply`);
   const pin = readJson(path.join(dest, PIN_FILE));

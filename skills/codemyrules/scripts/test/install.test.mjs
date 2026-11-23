@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { PINNED_CLI_IN_HOOKS, findExecutable, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
+import { PINNED_CLI_IN_HOOKS, findExecutable, geminiHooks, hookEntries, mergeSettings, packageFiles, pinnedCli, treeHash, validateLoopConfig } from '../install.mjs';
 
 const INSTALL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'install.mjs');
 const CLI = path.join(path.dirname(INSTALL), 'cli.mjs');
@@ -500,4 +500,169 @@ test('uninstall keeps a .claude folder that holds anything else', (t) => {
   assert.equal(run(dir, cfg, '--harness', 'pi', '--apply').status, 0);
   assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
   assert.ok(fs.existsSync(path.join(dir, '.claude/CLAUDE.md')));
+});
+
+test('geminiHooks: three events, ms timeouts, fail-closed BeforeTool for each shell', () => {
+  const h = geminiHooks("/p/it's here/cli.mjs", 'darwin');
+  assert.deepEqual(Object.keys(h), ['BeforeTool', 'AfterTool', 'AfterAgent']);
+  assert.equal(h.BeforeTool[0].matcher, 'write_file|replace|run_shell_command');
+  assert.equal(h.AfterTool[0].matcher, 'write_file|replace|run_shell_command');
+  assert.equal(h.AfterAgent[0].matcher, undefined);
+  assert.deepEqual([h.BeforeTool, h.AfterTool, h.AfterAgent].map((e) => e[0].hooks[0].timeout), [10000, 30000, 120000]);
+  assert.equal(h.AfterTool[0].hooks[0].command, "node '/p/it'\\''s here/cli.mjs' hook gemini");
+  assert.match(h.BeforeTool[0].hooks[0].command, / \|\| \{ echo .*exit 2; \}$/);
+  const w = geminiHooks("C:\\p\\it's\\cli.mjs", 'win32');
+  assert.match(w.AfterTool[0].hooks[0].command, /^node 'C:\\p\\it''s\\cli\.mjs' hook gemini$/);
+  assert.match(w.BeforeTool[0].hooks[0].command, /; if \(\$LASTEXITCODE -ne 0\) \{ \[Console\]::Error\.WriteLine\(.*\); exit 2 \}$/);
+});
+
+const geminiCommands = (dir) => Object.values(JSON.parse(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8')).hooks).flat().flatMap((e) => e.hooks.map((h) => h.command));
+
+test('--harness gemini merges into .gemini/settings.json; reinstall keeps it, status shows it, uninstall removes it', (t) => {
+  const { dir, cfg, git } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const s = JSON.parse(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8'));
+  assert.deepEqual(Object.keys(s.hooks), ['BeforeTool', 'AfterTool', 'AfterAgent']);
+  for (const c of geminiCommands(dir)) assert.ok(c.startsWith(`node '${pinnedCli(dir)}' hook gemini`), c);
+  assert.ok(fs.readFileSync(path.join(dir, '.git/info/exclude'), 'utf8').split('\n').includes('.gemini/settings.json'));
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.equal(git('status', '--porcelain').stdout, '');
+  assert.equal(spawnSync('node', [INSTALL, dir, '--cli', CLI], { encoding: 'utf8' }).stdout.trim(), 'nothing to change');
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /^gemini: \.gemini\/settings\.json, 3 entries$/m);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.ok(!fs.existsSync(path.join(dir, '.gemini')), 'uninstall leaves no .gemini folder that held only our file');
+});
+
+test('gemini install keeps the user\'s settings', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const original = { model: { name: 'x' }, mcpServers: { a: { command: 'a' } }, hooks: { BeforeTool: [{ matcher: 'x', hooks: [{ type: 'command', command: 'mine' }] }] } };
+  fs.mkdirSync(path.join(dir, '.gemini'));
+  fs.writeFileSync(path.join(dir, '.gemini/settings.json'), JSON.stringify(original));
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const s = JSON.parse(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8'));
+  assert.deepEqual([s.model, s.mcpServers], [original.model, original.mcpServers]);
+  assert.deepEqual(s.hooks.BeforeTool[0], original.hooks.BeforeTool[0]);
+  assert.equal(geminiCommands(dir).length, 4);
+  assert.equal(spawnSync('node', [CLI, 'uninstall', dir, '--apply'], { encoding: 'utf8' }).status, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8')), original);
+});
+
+test('gemini install refuses a tracked, commented or broken .gemini/settings.json and writes nothing', (t) => {
+  for (const [content, tracked, why] of [
+    ['{}', true, /\.gemini\/settings\.json is tracked by git/],
+    ['{\n  // mine\n  "model": {}\n}', false, /has comments/],
+    ['{', false, /is not valid JSON/],
+  ]) {
+    const { dir, cfg, git } = tempRepo(t);
+    fs.mkdirSync(path.join(dir, '.gemini'));
+    fs.writeFileSync(path.join(dir, '.gemini/settings.json'), content);
+    if (tracked) git('add', '.gemini/settings.json');
+    const r = run(dir, cfg, '--harness', 'gemini', '--apply');
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, why);
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
+    assert.equal(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8'), content);
+  }
+});
+
+test('gemini hook commands run as written, also in a path with a space and a quote', { skip: process.platform === 'win32' && 'bash form' }, (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(root, "it's a dir");
+  fs.mkdirSync(dir);
+  spawnSync('git', ['init', '-q'], { cwd: dir });
+  const cfg = path.join(root, 'loop.json');
+  fs.writeFileSync(cfg, JSON.stringify({ linters: [], protect: [] }));
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const hooks = JSON.parse(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8')).hooks;
+  const exec = (event, input) => spawnSync(hooks[event][0].hooks[0].command, { shell: true, cwd: dir, input: JSON.stringify({ hook_event_name: event, cwd: dir, session_id: 's', ...input }), encoding: 'utf8' });
+  const ask = exec('BeforeTool', { tool_name: 'replace', tool_input: { file_path: path.join(dir, 'a.ts'), old_string: 'x', new_string: 'x // eslint-disable-line' } });
+  assert.equal(ask.status, 0, ask.stderr);
+  assert.equal(JSON.parse(ask.stdout).decision, 'ask');
+  for (const [event, input] of [['AfterTool', { tool_name: 'read_file', tool_input: {} }], ['AfterAgent', {}]]) {
+    const r = exec(event, input);
+    assert.equal(r.status, 0, `${event}: ${r.stderr}`);
+    assert.equal(r.stdout, '', event);
+  }
+  fs.rmSync(path.join(dir, '.claude/codemyrules/pkg'), { recursive: true });
+  const blocked = exec('BeforeTool', { tool_name: 'write_file', tool_input: { file_path: path.join(dir, 'b.ts'), content: '' } });
+  assert.equal(blocked.status, 2);
+  assert.match(blocked.stderr, /reinstall it: codemyrules install \. --apply/);
+  // exit 1 is a non-blocking error in Gemini: a lint run that cannot start blocks nothing
+  assert.equal(exec('AfterTool', { tool_name: 'read_file' }).status, 1);
+  assert.equal(exec('AfterAgent', {}).status, 1);
+});
+
+test('without --harness a first install picks Gemini from GEMINI.md', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.writeFileSync(path.join(dir, 'GEMINI.md'), 'x');
+  const r = run(dir, cfg, '--apply');
+  assert.match(r.stdout, /harness: gemini \(found GEMINI\.md/);
+  assert.ok(fs.existsSync(path.join(dir, '.gemini/settings.json')));
+});
+
+test('a package without gemini.mjs is refused for --harness gemini', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  const pkg = fakePackage(t, '0.8.0');
+  fs.rmSync(path.join(path.dirname(pkg.cli), 'gemini.mjs'));
+  const r = spawnSync('node', [INSTALL, dir, '--config', cfg, '--cli', pkg.cli, '--harness', 'gemini', '--apply'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /has no gemini support; nothing written/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.gemini')), false);
+});
+
+test('a .gemini/settings.json with our hooks that no longer parses: status says so, uninstall refuses and keeps the pinned copy', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const gp = path.join(dir, '.gemini/settings.json');
+  const content = '// mine\n' + fs.readFileSync(gp, 'utf8');
+  fs.writeFileSync(gp, content);
+  assert.match(spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout, /^gemini: \.gemini\/settings\.json has codemyrules hooks, but it cannot be parsed/m);
+  for (const extra of [[], ['--apply']]) {
+    const r = spawnSync('node', [CLI, 'uninstall', dir, ...extra], { encoding: 'utf8' });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /\.gemini\/settings\.json/);
+    assert.match(r.stderr, /nothing (?:written|removed)/i);
+  }
+  assert.ok(fs.existsSync(path.join(dir, '.claude/codemyrules/pkg')));
+  assert.equal(fs.readFileSync(gp, 'utf8'), content);
+});
+
+test('a .gemini folder of Gemini Code Assist on GitHub alone does not pick Gemini CLI', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  fs.mkdirSync(path.join(dir, '.gemini'));
+  fs.writeFileSync(path.join(dir, '.gemini/config.yaml'), 'x: 1\n');
+  fs.writeFileSync(path.join(dir, '.gemini/styleguide.md'), 'x');
+  const r = run(dir, cfg, '--apply');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /harness: claude \(no harness folder found/);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/settings.local.json')));
+  assert.ok(!fs.existsSync(path.join(dir, '.gemini/settings.json')));
+});
+
+test('gemini install refuses a .gemini/settings.json that is not a JSON object', (t) => {
+  for (const content of ['null', '[]', '"x"']) {
+    const { dir, cfg } = tempRepo(t);
+    fs.mkdirSync(path.join(dir, '.gemini'));
+    fs.writeFileSync(path.join(dir, '.gemini/settings.json'), content);
+    const r = run(dir, cfg, '--harness', 'gemini', '--apply');
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /\.gemini\/settings\.json is not a JSON object/);
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/codemyrules')));
+    assert.equal(fs.readFileSync(path.join(dir, '.gemini/settings.json'), 'utf8'), content);
+  }
+});
+
+test('status names a gemini hook command it cannot read instead of printing undefined', (t) => {
+  const { dir, cfg } = tempRepo(t);
+  assert.equal(run(dir, cfg, '--harness', 'gemini', '--apply').status, 0);
+  const gp = path.join(dir, '.gemini/settings.json');
+  const s = JSON.parse(fs.readFileSync(gp, 'utf8'));
+  // forward slashes, so the command still counts as codemyrules' own on Windows too
+  s.hooks.AfterAgent[0].hooks[0].command = `bash -c "node ${pinnedCli(dir).replaceAll('\\', '/')} hook gemini"`;
+  fs.writeFileSync(gp, JSON.stringify(s));
+  const out = spawnSync('node', [CLI, 'status', dir], { encoding: 'utf8' }).stdout;
+  assert.doesNotMatch(out, /undefined/);
+  assert.match(out, /^gemini: .*but they run an unreadable command, which is missing; reinstall$/m);
 });

@@ -1,7 +1,7 @@
 ---
 name: codemyrules
 description: Turn a project's decisions, coding patterns and agent-doc instructions into lint rules across its whole stack, slim the CLAUDE.md / AGENTS.md / instructions files those rules now cover, and set up a private, silent lint feedback loop for Claude Code. Routes JS/TS/Vue/Svelte to eslint-pattern-rules and Java, Kotlin, Python, Go, C#, PHP, Rust, Ruby and PowerShell to backend-pattern-rules, merges their candidates into one selection, and builds what the user picks. Use when the user wants to turn their decisions, patterns or agent docs into rules, slim or shrink CLAUDE.md or AGENTS.md, set up lint feedback for agents, or names codemyrules. Not for fixing existing lint errors or tuning an off-the-shelf linter config.
-version: "0.9.1"
+version: "0.10.0"
 metadata:
   author: clirimajeti <clirimajeti@gmail.com>
   tags: [lint, agent-docs, claude-md, hooks, code-quality]
@@ -124,11 +124,12 @@ Done when every picked candidate is built and verified, or reported as not built
 The loop runs the project's lint setup in Claude Code hooks: a guard before each edit and around each shell command, a fast check after each edit, and a full check at the end of each turn.
 It is private (`.claude/settings.local.json` and `.git/info/exclude`) and silent when clean.
 [`references/feedback-loop.md`](references/feedback-loop.md) explains it; read it before offering.
-Offer it only when you are running in Claude Code, pi, opencode 2 or the GitHub Copilot CLI, and always pass the harness you are running in to the install command below: `--harness claude`, `--harness pi`, `--harness opencode` or `--harness copilot`.
+Offer it only when you are running in Claude Code, pi, opencode 2, the GitHub Copilot CLI or the Gemini CLI, and always pass the harness you are running in to the install command below: `--harness claude`, `--harness pi`, `--harness opencode`, `--harness copilot` or `--harness gemini`.
 In pi, the guard asks through pi's confirm dialog, and pi loads the extension only in a trusted project, so say that in the report.
 In opencode, the guard asks through opencode's permission prompt, and `--auto` approves it, so say that in the report.
 In the Copilot CLI, the guard asks through Copilot's permission prompt, and in autopilot mode Copilot refuses a flagged edit, so say that in the report.
-In any other harness, skip this step and the baseline, and say in the report that the feedback loop needs Claude Code, pi, opencode 2 or the GitHub Copilot CLI and is not available here.
+In the Gemini CLI, the guard asks through Gemini's approval prompt, a headless `gemini -p` run refuses a flagged edit but then hangs because of a Gemini bug (so headless runs need a timeout), project hooks run only in a trusted folder, and the installer refuses a `.gemini/settings.json` that git tracks, so say that in the report.
+In any other harness, skip this step and the baseline, and say in the report that the feedback loop needs Claude Code, pi, opencode 2, the GitHub Copilot CLI or the Gemini CLI and is not available here.
 
 Draft the config in a temporary file outside the project, as `loop.json`:
 

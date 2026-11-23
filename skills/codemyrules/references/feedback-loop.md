@@ -68,6 +68,7 @@ It turns these into a permission prompt (`permissionDecision: "ask"`), so only t
 - an edit to the lint settings inside a shared build file: `eslintConfig` and `eslintIgnore` in `package.json`, and the `[tool.ruff]`, `[tool.mypy]`, `[tool.pylint]`, `[flake8]` and similar sections in `pyproject.toml`, `setup.cfg` and `tox.ini`; any other edit to those files passes
 - an edit to a path in `protect`: the lint configs, rule folders and baseline files; the path is taken as stored on disk, so `ESLint.Config.js` on a case-insensitive file system (macOS, Windows) is `eslint.config.js`
 - an edit to `.claude/codemyrules/` itself, to `.claude/settings.local.json`, to `.pi/extensions/codemyrules.js`, to `.opencode/plugins/codemyrules.js` or to `.github/hooks/codemyrules.json`
+- an edit to `.gemini/settings.json`: it is part of the protected setup in every codemyrules project, whatever harness is used, so an agent edit to it asks the user and a shell change to it sends the agent back
 
 Everything else passes without output.
 With nobody to approve, the edit does not happen.
@@ -93,7 +94,7 @@ CI, running the project's own lint setup, stays the safety net.
 
 `codemyrules install <project-dir> --harness pi` writes `.pi/extensions/codemyrules.js` instead of the Claude Code hooks; `--harness claude,pi` writes both.
 A reinstall without `--harness` keeps the harnesses already installed.
-A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`), Claude Code when it has none, and refuses when it has more than one.
+A first install without `--harness` installs for the one harness the project has setup for (`.claude/`, `.pi/`, `.opencode/` or `opencode.json`, `.github/hooks/` or `.github/copilot-instructions.md`, `.gemini/` or `GEMINI.md`), Claude Code when it has none, and refuses when it has more than one.
 The extension re-exports `pi.mjs` from the pinned copy and runs the same checks as the hooks:
 - `tool_call` on `edit` and `write`: the guard; a flagged edit opens pi's confirm dialog, and a no blocks it.
   Without a UI (print or JSON mode) a flagged edit is refused, since nobody can be asked.
@@ -134,6 +135,27 @@ A hook that runs past its timeout lets the tool call through, so the guard fails
 The hooks file is git-excluded, so the cloud agent, which reads only committed hooks, does not run the loop.
 Edits through other tools (for example `apply_patch`, if a model gets it) are not checked and not recorded for the end-of-turn check.
 
+## Gemini CLI
+
+`codemyrules install <project-dir> --harness gemini` merges the hooks into `.gemini/settings.json`; harnesses combine as with pi (`--harness claude,gemini`).
+The file is git-excluded.
+Each hook runs `codemyrules hook gemini` from the pinned copy; the event is `hook_event_name` in the payload.
+The command holds the absolute path of the pinned copy, so a project that moves needs a reinstall.
+- `BeforeTool` on `write_file` and `replace`: the guard; a flagged edit returns `decision: "ask"` with the reason, and Gemini asks the user, also in YOLO mode.
+  The `ask` decision is undocumented in Gemini CLI (google-gemini/gemini-cli#28046); a headless `gemini -p` run refuses a flagged edit, but Gemini CLI 0.70 then hangs (a Gemini bug: any hook `ask` in headless mode does it), so headless runs need a timeout.
+- `BeforeTool` and `AfterTool` on `run_shell_command`: the shell guard; its message to undo the change goes back to the agent.
+- `AfterTool` on `write_file` and `replace`: the fast tier; findings go back as `additionalContext`.
+- `AfterAgent`: the full tier; findings go back once with `decision: "deny"`, which starts one more turn, and after that one retry the user sees what is still failing.
+
+The installer refuses a `.gemini/settings.json` that git tracks, that has comments, that is not valid JSON or that is not a JSON object, and writes nothing.
+A `.gemini/` folder that holds only `config.yaml` and `styleguide.md` (Gemini Code Assist on GitHub) does not count as Gemini CLI setup for a first install.
+When `.gemini/settings.json` holds codemyrules hooks but no longer parses (comments added by hand, say), `uninstall` refuses and removes nothing, so the hooks do not outlive the pinned copy they run; `status` reports it.
+Gemini runs project hooks only in a trusted folder, and reads project settings only from the folder it starts in.
+The `BeforeTool` commands fail closed (a `|| exit 2` suffix in bash, the same check in PowerShell); the PowerShell form is tested only as a string.
+A hook that runs past its timeout is killed and counts as a non-blocking error with no output, so a timed-out `BeforeTool` hook lets the call through, as in Claude Code: the guard fails open on a timeout (10 s).
+Edits through other tools are not checked.
+Verified end to end with Gemini CLI 0.70.0 on macOS: the guard prompt (also in YOLO), the headless refusal, the shell guard, both lint tiers and the fail-closed suffix; not on Windows.
+
 ## Files
 
 Everything lives in the project, private to the user who installed it:
@@ -151,6 +173,7 @@ Everything lives in the project, private to the user who installed it:
 | `.pi/extensions/codemyrules.js` | with `--harness pi`: the pi extension, a one-line re-export of the pinned `pi.mjs` |
 | `.opencode/plugins/codemyrules.js` | with `--harness opencode`: the opencode plugin, a one-line re-export of the pinned `opencode.mjs` |
 | `.github/hooks/codemyrules.json` | with `--harness copilot`: the Copilot CLI hooks, each running the pinned `copilot.mjs` |
+| `.gemini/settings.json` | with `--harness gemini`: the Gemini CLI hooks, merged into the file, each running the pinned `gemini.mjs` |
 
 `install.mjs` adds `.claude/codemyrules/` and `.claude/settings.local.json` to `.git/info/exclude`, so no tracked file changes.
 It merges its six entries into an existing `settings.local.json`, replacing any entries codemyrules wrote before and keeping everything else, so running it again is safe.
