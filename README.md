@@ -18,6 +18,7 @@ codemyrules finds the conventions your code and docs already state, writes them 
 - **Whole stack** - ESLint or oxlint for JavaScript, TypeScript, Vue and Svelte (Biome not yet); ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby; PSScriptAnalyzer for PowerShell.
 - **Slimmer agent docs** - every doc line a new rule covers can be deleted, shortened to a pointer, or kept.
 - **Silent feedback loop** - the agent sees a broken rule seconds after it writes the code, not days later in review; a passing check costs no tokens.
+- **A smaller model is enough** - in our benchmark, Haiku with rules broke no convention in 104 runs; Sonnet without rules broke one in 21% of its runs, at ten times the cost ([details](#a-smaller-model-with-rules)).
 - **Asks first** - no rule, config change, doc edit, hook or baseline is written without your yes.
 
 ## Quick Start
@@ -208,6 +209,27 @@ The tested rule was design-shaping (time through an injected `Clock`); a second,
 - Limits: one module, two rules, 8-12 runs per setup with a wide spread, and an idealised review.
 
 So codemyrules recommends: for a mechanical rule, the rule only; for a design-shaping rule, the rule plus a one-line pointer in the folder-level `CLAUDE.md`.
+
+### A smaller model with rules
+
+The benchmark also shows what rules do for a smaller model.
+We combined 592 runs from seven studies on three open-source projects in TypeScript, Python and Java.
+Haiku had the rules and the feedback loop.
+Sonnet had the same conventions as prose, or no conventions.
+
+| Setup | Runs that broke a convention | Cost per run, including a review fix | Build and tests pass |
+|---|---|---|---|
+| Haiku with rules | 0 of 104 | $0.015 | 91% |
+| Sonnet without rules | 41 of 192 (21%) | $0.146 | 98% |
+
+- With rules, Haiku follows the team's conventions better than Sonnet without rules, for about one tenth of the cost.
+- Rules do not prevent functional errors.
+  Haiku made more type and compile errors than Sonnet (91% against 98%), with or without rules.
+- In these studies, the agent could not run the tests.
+  In a later study, the agent could run the tests, and Haiku passed the build and the tests in 16 of 16 runs.
+- Haiku was slower: 54 seconds per run against 36 seconds.
+- Limits: we combined the studies after we saw the data, and we selected the tasks to test conventions.
+  Thus, this result is exploratory.
 
 The method, the harness to rerun it on your own repo, and related work are in [agent-rules-bench](https://github.com/clirimajeti/agent-rules-bench).
 
