@@ -6,10 +6,12 @@
   <a href="https://github.com/clirimajeti/agent-rules-bench"><img alt="Benchmark" src="https://img.shields.io/badge/evidence-agent--rules--bench-green?style=flat-square" /></a>
 </p>
 
-<h3 align="center">Turn the rules in your agent docs into code rules your agent cannot ignore.</h3>
+<h3 align="center">Turn the rules in your agent docs into lint rules that check every edit and cost no tokens until one breaks.</h3>
 
-Every prose rule in `CLAUDE.md`, `AGENTS.md` or an instructions file is read in every agent session, whether the task needs it or not.
-The agent can still ignore it.
+A rule in `CLAUDE.md` itself is usually followed: in our benchmark, the agent followed it in all 32 runs.
+A rule buried in long docs, or in a doc that `CLAUDE.md` only links to, broke in 17 of 56 runs.
+As a lint rule with the feedback loop, the same rules broke in 0 of 56 runs ([data](https://github.com/clirimajeti/agent-rules-bench/blob/main/studies/pooled.md)).
+And every line you move from an always-loaded doc into a lint rule stops costing tokens in every session.
 A lint rule costs nothing until it is broken, and then it says exactly what is wrong.
 
 codemyrules finds the conventions your code and docs already state, writes them as lint rules, slims the agent docs those rules now cover, and lets the agent meet the rules while it codes.
@@ -18,7 +20,7 @@ codemyrules finds the conventions your code and docs already state, writes them 
 - **Whole stack** - ESLint or oxlint for JavaScript, TypeScript, Vue and Svelte (Biome not yet); ast-grep or your existing linter for Java, Kotlin, Python, Go, C#, PHP, Rust and Ruby; PSScriptAnalyzer for PowerShell.
 - **Slimmer agent docs** - every doc line a new rule covers can be deleted, shortened to a pointer, or kept.
 - **Silent feedback loop** - the agent sees a broken rule seconds after it writes the code, not days later in review; a passing check costs no tokens.
-- **A smaller model is enough** - in our benchmark, Haiku with rules broke no convention in 104 runs; Sonnet without rules broke one in 21% of its runs, at ten times the cost ([details](#a-smaller-model-with-rules)).
+- **A smaller model is enough** - in our benchmark, Haiku with rules broke no convention in 104 runs; Sonnet without rules broke one in 40 of 200 runs, at ten times the cost (exploratory, [details](#a-smaller-model-with-rules)).
 - **Asks first** - no rule, config change, doc edit, hook or baseline is written without your yes.
 
 ## Quick Start
@@ -46,13 +48,15 @@ The skill is model-invoked, so there is no command to remember:
 - "Our CLAUDE.md is too long. Which of it could a linter enforce instead?"
 - "Set up lint feedback for agents in this repo."
 
+Not on Claude Code? Open the install section for your harness:
+
 <details>
-<summary><strong>pi</strong></summary>
+<summary><strong>Install for pi</strong></summary>
+
+Install the skill and its two sub-skills with one command:
 
 ```bash
-npx skills add clirimajeti/codemyrules -a pi
-npx skills add clirimajeti/eslint-pattern-rules -a pi
-npx skills add clirimajeti/backend-pattern-rules -a pi
+for s in codemyrules eslint-pattern-rules backend-pattern-rules; do npx skills add clirimajeti/$s -a pi; done
 ```
 
 Then ask in your own words, as above.
@@ -62,12 +66,12 @@ pi loads it only in a trusted project: run `/trust` once, or start pi with `-a`.
 </details>
 
 <details>
-<summary><strong>opencode</strong></summary>
+<summary><strong>Install for opencode</strong></summary>
+
+Install the skill and its two sub-skills with one command:
 
 ```bash
-npx skills add clirimajeti/codemyrules -a opencode
-npx skills add clirimajeti/eslint-pattern-rules -a opencode
-npx skills add clirimajeti/backend-pattern-rules -a opencode
+for s in codemyrules eslint-pattern-rules backend-pattern-rules; do npx skills add clirimajeti/$s -a opencode; done
 ```
 
 Then ask in your own words, as above.
@@ -76,12 +80,12 @@ The skill installs the feedback loop as an opencode plugin in `.opencode/plugins
 </details>
 
 <details>
-<summary><strong>GitHub Copilot CLI</strong></summary>
+<summary><strong>Install for GitHub Copilot CLI</strong></summary>
+
+Install the skill and its two sub-skills with one command:
 
 ```bash
-npx skills add clirimajeti/codemyrules -a github-copilot
-npx skills add clirimajeti/eslint-pattern-rules -a github-copilot
-npx skills add clirimajeti/backend-pattern-rules -a github-copilot
+for s in codemyrules eslint-pattern-rules backend-pattern-rules; do npx skills add clirimajeti/$s -a github-copilot; done
 ```
 
 Then ask in your own words, as above.
@@ -91,12 +95,12 @@ Copilot runs repository hooks only in a trusted folder: trust the project when C
 </details>
 
 <details>
-<summary><strong>Gemini CLI</strong></summary>
+<summary><strong>Install for Gemini CLI</strong></summary>
+
+Install the skill and its two sub-skills with one command:
 
 ```bash
-npx skills add clirimajeti/codemyrules -a gemini-cli
-npx skills add clirimajeti/eslint-pattern-rules -a gemini-cli
-npx skills add clirimajeti/backend-pattern-rules -a gemini-cli
+for s in codemyrules eslint-pattern-rules backend-pattern-rules; do npx skills add clirimajeti/$s -a gemini-cli; done
 ```
 
 Then ask in your own words, as above.
@@ -106,12 +110,12 @@ Gemini runs project hooks only in a trusted folder: trust the project when Gemin
 </details>
 
 <details>
-<summary><strong>Codex, Cursor and others</strong></summary>
+<summary><strong>Install for Codex, Cursor and others</strong></summary>
+
+Install the skill and its two sub-skills with one command:
 
 ```bash
-npx skills add clirimajeti/codemyrules
-npx skills add clirimajeti/eslint-pattern-rules
-npx skills add clirimajeti/backend-pattern-rules
+for s in codemyrules eslint-pattern-rules backend-pattern-rules; do npx skills add clirimajeti/$s; done
 ```
 
 The rules and the doc cleanup work in every harness.
@@ -120,7 +124,7 @@ The feedback loop runs only in Claude Code, pi, opencode, the GitHub Copilot CLI
 </details>
 
 <details>
-<summary><strong>npm (the feedback loop only)</strong></summary>
+<summary><strong>Install the feedback loop only (npm)</strong></summary>
 
 The [`codemyrules`](https://www.npmjs.com/package/codemyrules) npm package holds the feedback loop's hooks and its CLI, without the skill.
 The skill installs it for you when you set up the loop, but you can also install it yourself and set up the loop by hand:
@@ -154,10 +158,10 @@ It needs Node 22 or later and Claude Code, pi, opencode 2, the GitHub Copilot CL
 </details>
 
 <details>
-<summary><strong>Manual</strong></summary>
+<summary><strong>Install by hand</strong></summary>
 
 Copy `skills/codemyrules/` into your agent's skills folder, for example `~/.claude/skills/codemyrules/`, next to the two sub-skills.
-When a sub-skill is not installed, the skill asks for the path to its `SKILL.md`.
+Copy all three: when a sub-skill is missing, the skill stops during the run and asks for the path to its `SKILL.md`.
 
 </details>
 
@@ -187,6 +191,8 @@ When the agent then writes `Instant.now()`, the feedback loop tells it within se
 src/main/kotlin/mail/MailSender.kt:42 use-clock-injection Instant.now() without a clock (ADR 0043). Use Instant.now(clock) instead.
 ```
 
+To see everything one run writes to a repo, look at [`examples/shop-web`](examples/shop-web): a real run on the sample project, with the lint rules, the `CLAUDE.md` diff, the hook files and the report with token counts.
+
 ## Why Rules Instead of Prose
 
 The defaults come from an experiment: 124 headless Claude Code sessions on two isolated copies of a real Kotlin/Spring backend.
@@ -213,22 +219,21 @@ So codemyrules recommends: for a mechanical rule, the rule only; for a design-sh
 ### A smaller model with rules
 
 The benchmark also shows what rules do for a smaller model.
-We combined 592 runs from seven studies on three open-source projects in TypeScript, Python and Java.
-Haiku had the rules and the feedback loop.
-Sonnet had the same conventions as prose, or no conventions.
+Pooled from seven studies after seeing the data: Haiku with lint rules and the feedback loop broke a convention in 0 of 104 runs, Sonnet without rules in 40 of 200 (20%), at about a tenth of the cost per run ($0.015 against $0.144).
+These 600 runs are part of the benchmark's 792 runs on three open-source projects in TypeScript, Python and Java; the table, the runs per study and the script that makes them are in [studies/models.md](https://github.com/clirimajeti/agent-rules-bench/blob/main/studies/models.md).
+"Without rules" means no conventions, or the conventions as prose.
 
-| Setup | Runs that broke a convention | Cost per run, including a review fix | Build and tests pass |
-|---|---|---|---|
-| Haiku with rules | 0 of 104 | $0.015 | 91% |
-| Sonnet without rules | 41 of 192 (21%) | $0.146 | 98% |
+| Setup | Runs that broke a convention | Cost per run, including a review fix | Production code passes the original tests | The agent's own new tests pass too |
+|---|---|---|---|---|
+| Haiku with rules | 0 of 104 | $0.015 | 96% | 91% |
+| Sonnet without rules | 40 of 200 (20%) | $0.144 | 98% | 98% |
 
 - With rules, Haiku follows the team's conventions better than Sonnet without rules, for about one tenth of the cost.
 - Rules do not prevent functional errors.
-  Haiku made more type and compile errors than Sonnet (91% against 98%), with or without rules.
+  Haiku's production code passed the original tests about as often as Sonnet's (96% against 98%), but the new tests that Haiku wrote failed more often (91% against 98%), with or without rules.
 - In these studies, the agent could not run the tests.
-  In a later study, the agent could run the tests, and Haiku passed the build and the tests in 16 of 16 runs.
-- Haiku was slower: 54 seconds per run against 36 seconds.
-- Limits: we combined the studies after we saw the data, and we selected the tasks to test conventions.
+- Haiku was slower: 54 seconds per run against 35 seconds.
+- Limits: we grouped the runs after we saw the data, and we selected the tasks to test conventions.
   Thus, this result is exploratory.
 
 The method, the harness to rerun it on your own repo, and related work are in [agent-rules-bench](https://github.com/clirimajeti/agent-rules-bench).

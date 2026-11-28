@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook guard || { echo 'codemyrules: the hook could not run (the pinned copy in .claude/codemyrules/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook shell || { echo 'codemyrules: the hook could not run (the pinned copy in .claude/codemyrules/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook edited",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook shell || { echo 'codemyrules: the hook could not run (the pinned copy in .claude/codemyrules/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook shell || { echo 'codemyrules: the hook could not run (the pinned copy in .claude/codemyrules/pkg is missing or broken). Ask the user to reinstall it: codemyrules install . --apply' >&2; exit 2; }",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/codemyrules/pkg/skills/codemyrules/scripts/cli.mjs\" hook turn",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

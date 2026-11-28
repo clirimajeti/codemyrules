@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-28T19:23:16.661Z",
+  "docTokens": 35,
+  "alwaysTokens": 35,
+  "onDemandTokens": 0,
+  "rules": {
+    "no-restricted-globals": 1,
+    "no-restricted-properties": 1,
+    "complexity": 0,
+    "max-depth": 0,
+    "max-lines-per-function": 0,
+    "max-params": 0,
+    "max-lines": 0,
+    "no-nested-ternary": 0,
+    "no-else-return": 0,
+    "no-console": 0,
+    "no-debugger": 0,
+    "eqeqeq": 0,
+    "no-fallthrough": 0,
+    "no-unreachable-loop": 0,
+    "no-self-compare": 0,
+    "no-constant-binary-expression": 0,
+    "no-constant-condition": 0,
+    "array-callback-return": 0,
+    "no-unsafe-optional-chaining": 0,
+    "no-eval": 0,
+    "no-implied-eval": 0,
+    "no-new-func": 0,
+    "no-script-url": 0
+  }
+}
