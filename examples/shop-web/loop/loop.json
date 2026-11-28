@@ -1,0 +1,27 @@
+{
+  "linters": [
+    {
+      "name": "eslint",
+      "format": "eslint",
+      "command": [
+        "node_modules/.bin/eslint",
+        "-c",
+        "eslint.config.suggestions.mjs",
+        "--format",
+        "json",
+        "{files}"
+      ],
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".mjs"
+      ],
+      "tier": "full"
+    }
+  ],
+  "protect": [
+    "eslint.config.*",
+    "**/eslint.config.*"
+  ]
+}

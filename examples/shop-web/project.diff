@@ -1,0 +1,86 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 2e48e95..24e8710 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -2,4 +2,3 @@
+ 
+ - Orders move from draft to paid to shipped; only the backend changes an order's state.
+ - Use pnpm, not npm, for every install.
+-- Browser storage only through `src/shared/storage.ts` (`readSetting`, `writeSetting`), never `localStorage` or `sessionStorage` directly.
+diff --git a/eslint.config.js b/eslint.config.js
+index 84fd384..6a779bb 100644
+--- a/eslint.config.js
++++ b/eslint.config.js
+@@ -3,4 +3,42 @@ import tseslint from 'typescript-eslint'
+ export default tseslint.config(
+   {ignores: ['dist']},
+   ...tseslint.configs.recommended,
++  {
++    name: 'general',
++    files: ['src/**/*.{ts,tsx}'],
++    rules: {
++      complexity: ['error', 10],
++      'max-depth': ['error', 4],
++      'max-lines-per-function': ['error', {max: 50, skipBlankLines: true, skipComments: true}],
++      'max-params': ['error', 3],
++      'max-lines': ['error', {max: 400, skipBlankLines: true, skipComments: true}],
++      'no-nested-ternary': 'error',
++      'no-else-return': 'error',
++      'no-console': 'error',
++      'no-debugger': 'error',
++      eqeqeq: 'error',
++      'no-fallthrough': 'error',
++      'no-unreachable-loop': 'error',
++      'no-self-compare': 'error',
++      'no-constant-binary-expression': 'error',
++      'no-constant-condition': 'error',
++      'array-callback-return': 'error',
++      'no-unsafe-optional-chaining': 'error',
++      'no-eval': 'error',
++      'no-implied-eval': 'error',
++      'no-new-func': 'error',
++      'no-script-url': 'error',
++    },
++  },
++  {
++    name: 'test-hygiene',
++    files: ['**/*.{test,spec}.{ts,tsx,js,jsx}'],
++    rules: {
++      'no-restricted-properties': ['error',
++        ...['it', 'describe', 'test'].map((object) => ({
++          object, property: 'only', message: 'Remove the focused test: .only skips every other test in the run.',
++        })),
++      ],
++    },
++  },
+ )
+diff --git a/eslint.config.suggestions.mjs b/eslint.config.suggestions.mjs
+new file mode 100644
+index 0000000..8aa19cc
+--- /dev/null
++++ b/eslint.config.suggestions.mjs
+@@ -0,0 +1,24 @@
++import base from './eslint.config.js'
++
++const storageMessage = 'Use readSetting/writeSetting from src/shared/storage.ts instead; browser storage goes only through that module (shop-web CLAUDE.md).'
++
++export default [
++  ...base,
++  {
++    name: 'suggestions',
++    files: ['src/**/*.{ts,tsx}'],
++    ignores: ['src/shared/storage.ts', '**/*.{test,spec}.{ts,tsx,js,jsx}'],
++    rules: {
++      'no-restricted-globals': ['error',
++        {name: 'localStorage', message: storageMessage},
++        {name: 'sessionStorage', message: storageMessage},
++      ],
++      'no-restricted-properties': ['error',
++        ...['window', 'globalThis', 'self'].flatMap((object) => [
++          {object, property: 'localStorage', message: storageMessage},
++          {object, property: 'sessionStorage', message: storageMessage},
++        ]),
++      ],
++    },
++  },
++]
